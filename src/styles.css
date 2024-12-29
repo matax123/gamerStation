@@ -79,3 +79,6 @@ body {
   color: white
 }
 
+.bootstrap-select .hidden{
+  display: none;
+}

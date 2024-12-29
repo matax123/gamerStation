@@ -1,5 +1,7 @@
 
 
+
+
 const swiper = new Swiper('.swiper-container', {
   slidesPerView: 3, // Show 3 slides at once
   slidesPerGroup: 1, // Slide 3 slides per click
@@ -65,15 +67,36 @@ function connectWebSocket() {
 connectWebSocket();
 
 
-setInterval(() => {
+
+
+async function selectGame(game){
+  await pywebview.api.log(game.value);
+}
+
+
+let isProcessing = false;
+setInterval(async () => {
+  if (isProcessing) return;  // Skip if already processing
+  isProcessing = true;
+
   if (axis[0] < -0.5) {
     swiper.slidePrev();
   }
   if (axis[0] > 0.5) {
     swiper.slideNext();
   }
-  if (buttons[3] === 1) {
-    pywebview.api.save_path();
+  if (buttons[0] === 1) {
+    await pywebview.api.open_file();
   }
+  if (buttons[3] === 1) {
+    let result = await pywebview.api.save_path();
+    if(result !== null){
+      let askName = document.getElementById("askName");
+      askName.classList.remove("d-none");
+
+    }
+  }
+
+  isProcessing = false;
   // lastInput.innerHTML = JSON.stringify({axis, buttons});
-}, 150);
+}, 5);

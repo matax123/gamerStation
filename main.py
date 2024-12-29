@@ -9,24 +9,24 @@ class API:
         if(self.asking == True):
             return None
         self.asking = True
-        # Print log to confirm the method is being called
-        print("open_file function was triggered")
         
         # Define the path to the file you want to open
-        file_path = webview.windows[0].create_file_dialog(webview.OPEN_DIALOG)[0]
+        file_path = webview.windows[0].create_file_dialog(webview.OPEN_DIALOG)
+
+        if(file_path == None):
+            return None
+        
+        file_path = file_path[0]
 
         with open("file_paths.txt", "a") as f:
             f.write(f"{file_path}\n")
+
+        return file_path
         
-    def open_file(self):
+    def open_file(self, file_path):
         if(self.asking == True):
             return None
         self.asking = True
-        # Print log to confirm the method is being called
-        print("open_file function was triggered")
-        
-        # Define the path to the file you want to open
-        file_path = webview.windows[0].create_file_dialog(webview.OPEN_DIALOG)[0]
 
         print(f"File path: {file_path}")
         
@@ -47,6 +47,9 @@ class API:
         else:
             print("File does not exist!")
             window.evaluate_js(f"document.getElementById('file-status').innerText = 'File not found!'")
+
+    def log(self, message):
+        print(message)
 
 # Create an instance of the API class
 api = API()
