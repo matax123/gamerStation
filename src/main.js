@@ -97,6 +97,16 @@ setInterval(async () => {
     }
   }
 
+  let result = await pywebview.api.get_images();
   isProcessing = false;
   // lastInput.innerHTML = JSON.stringify({axis, buttons});
 }, 5);
+
+
+
+
+
+async function loadImages() {
+
+}
+loadImages();

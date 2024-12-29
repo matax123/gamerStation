@@ -48,6 +48,19 @@ class API:
             print("File does not exist!")
             window.evaluate_js(f"document.getElementById('file-status').innerText = 'File not found!'")
 
+    def get_images(self):
+        print("called")
+        folder_path = "./img/"
+
+        # Check all files from folder
+        files = os.listdir(folder_path)
+
+        # Filter only images
+        files = [f for f in files if f.endswith(".png")]
+
+        # Return the list of file paths
+        return [os.path.join(folder_path, f) for f in files]
+
     def log(self, message):
         print(message)
 
