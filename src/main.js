@@ -1,7 +1,5 @@
 
 
-
-
 const swiper = new Swiper('.swiper-container', {
   slidesPerView: 3, // Show 3 slides at once
   slidesPerGroup: 1, // Slide 3 slides per click
@@ -67,46 +65,64 @@ function connectWebSocket() {
 connectWebSocket();
 
 
-
-
-async function selectGame(game){
-  await pywebview.api.log(game.value);
-}
-
-
 let isProcessing = false;
+let awaitingInput = false;
+let imagesPath = [];
 setInterval(async () => {
-  if (isProcessing) return;  // Skip if already processing
+  if (isProcessing && !awaitingInput) return;  // Skip if already processing
   isProcessing = true;
 
-  if (axis[0] < -0.5) {
-    swiper.slidePrev();
+  const gameInput = document.getElementById("gameInput");
+  const gameSearch = document.getElementById("gameSearch");
+  const games = document.getElementById("games");
+  if (awaitingInput) {
+    imagesPath.forEach(imagePath => {
+      let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+      if(gameInput.value === name) {
+        pywebview.api.log("!!!")
+        gameInput.value = "";
+        awaitingInput = false;
+        gameSearch.classList.add("d-none");
+      }
+    });
   }
-  if (axis[0] > 0.5) {
-    swiper.slideNext();
-  }
-  if (buttons[0] === 1) {
-    await pywebview.api.open_file();
-  }
-  if (buttons[3] === 1) {
-    let result = await pywebview.api.save_path();
-    if(result !== null){
-      let askName = document.getElementById("askName");
-      askName.classList.remove("d-none");
 
+  try {
+    if (axis[0] < -0.5) {
+      swiper.slidePrev();
+    } else if (axis[0] > 0.5) {
+      swiper.slideNext();
     }
+
+    if (buttons[0] === 1) {
+      await pywebview.api.open_file();
+    }
+
+    if (buttons[3] === 1) {
+      let filePath = await pywebview.api.save_path();
+
+
+      if (filePath !== null && games) {
+        games.innerHTML = "";
+        let html = ''
+        imagesPath = await pywebview.api.get_images();
+        imagesPath.forEach(imagePath => {
+          let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+          let path = 'src/' + imagePath
+          let option = `<option value="${name}">`
+          html += option
+        });
+
+
+        games.innerHTML = html;
+        gameSearch.classList.remove("d-none");
+        awaitingInput = true;
+
+      }
+    }
+  } catch (error) {
+    console.error("An error occurred:", error);
+  } finally {
+    isProcessing = false;
   }
-
-  let result = await pywebview.api.get_images();
-  isProcessing = false;
-  // lastInput.innerHTML = JSON.stringify({axis, buttons});
-}, 5);
-
-
-
-
-
-async function loadImages() {
-
-}
-loadImages();
+}, 50); // Adjusted interval to 50ms for better efficiency

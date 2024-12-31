@@ -6,14 +6,14 @@ class API:
     asking = False
         
     def save_path(self):
-        if(self.asking == True):
+        if self.asking:
             return None
         self.asking = True
         
         # Define the path to the file you want to open
         file_path = webview.windows[0].create_file_dialog(webview.OPEN_DIALOG)
 
-        if(file_path == None):
+        if file_path is None:
             return None
         
         file_path = file_path[0]
@@ -24,7 +24,7 @@ class API:
         return file_path
         
     def open_file(self, file_path):
-        if(self.asking == True):
+        if self.asking:
             return None
         self.asking = True
 
@@ -49,17 +49,11 @@ class API:
             window.evaluate_js(f"document.getElementById('file-status').innerText = 'File not found!'")
 
     def get_images(self):
-        print("called")
+        print("Fetching images...")
         folder_path = "./img/"
-
-        # Check all files from folder
-        files = os.listdir(folder_path)
-
-        # Filter only images
-        files = [f for f in files if f.endswith(".png")]
-
-        # Return the list of file paths
-        return [os.path.join(folder_path, f) for f in files]
+        images = os.listdir(folder_path)
+        # print(f"Images found: {images}")
+        return images
 
     def log(self, message):
         print(message)
@@ -72,8 +66,7 @@ window = webview.create_window(
     title='My Webview',
     url='src/index.html',
     width=1500,
-    height=1000,
-    js_api=api  # Pass the API instance here
+    height=1000
 )
 
 # Start the webview
