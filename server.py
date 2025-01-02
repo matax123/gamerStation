@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
 import uvicorn
@@ -8,7 +9,13 @@ import os
 
 app = FastAPI()
 
-# Example of a Pydantic model for structured input and output
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins; you can specify particular domains here instead of "*"
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 
 
@@ -30,6 +37,12 @@ async def get_images():
     folder_path = "./img/"
     images = os.listdir(folder_path)
     return images
+
+@app.post("/get-games/")
+async def get_games():
+    folder_path = "./games/"
+    games = os.listdir(folder_path)
+    return games
 
 class OpenFileInput(BaseModel):
     file_path: str
@@ -58,4 +71,4 @@ async def open_file(input: OpenFileInput):
 # Entry point for running the app using `python server.py`
 if __name__ == "__main__":
     # Make sure to pass the app instance as a string reference
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("server:app", host="127.0.0.1", port=8400, reload=True)

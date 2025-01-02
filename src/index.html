@@ -19,54 +19,21 @@
 
   <div class="swiper swiper-container">
     <div class="swiper-wrapper">
-      <div class="swiper-slide" style="background-image: url('./img/dying_light_2.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
-      <div class="swiper-slide" style="background-image: url('./img/ZBOTW.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
-      <div class="swiper-slide" style="background-image: url('./img/rdr2.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
-      <div class="swiper-slide" style="background-image: url('./img/gta5.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
-      <div class="swiper-slide" style="background-image: url('./img/it_takes_two.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
-      <div class="swiper-slide" style="background-image: url('./img/residentEvil4.png')">
-        <div class="swiper-slide-content">
-        </div>
-      </div>
     </div>
-    <!-- <div class="swiper-pagination"></div> -->
     <div class="swiper-button-prev"></div>
     <div class="swiper-button-next"></div>
   </div>
 
-  <div id="gameSearch"
-    class="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex justify-content-center align-items-center d-none"
-    style="z-index: 1050;">
-    <input id="gameInput" class="form-control" list="games" placeholder="Select or type a game name" />
-    <datalist id="games">
-      <option value="Dying Light 2">
-      <option value="GTA 5">
-      <option value="It Takes Two">
-      <option value="Red Dead Redemption 2">
-      <option value="Resident Evil 4">
-      <option value="Zelda Breath of the Wild">
-    </datalist>
+
+  <div class="glide">
+    <div class="glide__track" data-glide-el="track">
+      <ul class="glide__slides">
+        <li class="glide__slide">0</li>
+        <li class="glide__slide">1</li>
+        <li class="glide__slide">2</li>
+      </ul>
+    </div>
   </div>
-
-
-
-
-
 
 
 
@@ -86,6 +53,7 @@
   integrity="sha384-Fy6S3B9q64WdZWQUiU+q4/2Lc9npb8tCaSX9FK7E8HnRr0Jz8D6OP9dO5Vg3Q9ct" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+<script src="node_modules/@glidejs/glide/dist/glide.min.js"></script>
 <script src="./main.js"></script>
 
 </html>
