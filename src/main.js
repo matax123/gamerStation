@@ -21,7 +21,6 @@ function generateSlide(url) {
   return `
     <div class="swiper-slide">
       <img src="${url}" >
-      </div>
     </div>
   `
 }
@@ -35,7 +34,7 @@ async function generateSlides(images, games) {
     console.log(splitByLastDot(image))
     game = games.find(game => splitByLastDot(game)[0] === splitByLastDot(image)[0]);
     // console.log(game)
-    if(game) { html += generateSlide(image); gamesDisplayed++; }
+    if (game) { html += generateSlide(image); gamesDisplayed++; }
   });
   swiperWrapper.innerHTML = html;
   return gamesDisplayed;
@@ -47,10 +46,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   let games = await loadGames();
   let gamesDisplayed = await generateSlides(images, games);
 
-  new Glide('.glide').mount()
 
   let swiper;
-  if(gamesDisplayed >= 5){
+  if (gamesDisplayed >= 5) {
     swiper = new Swiper('.swiper-container', {
       slidesPerView: 3, // Show 3 slides at once
       slidesPerGroup: 1, // Slide 3 slides per click
@@ -74,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       initialSlide: 1,
     });
   }
-  else{
+  else {
     swiper = new Swiper('.swiper-container', {
       loop: true,
       navigation: {
@@ -103,7 +101,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         let input = JSON.parse(event.data);
         if (input.type === "axis") axis[input.axis] = input.value;
         if (input.type === "button") buttons[input.button] = input.value;
-        console.log("Axis: ", axis);
       } catch (error) {
         console.error("JSON parsing error:", error, event.data);
       }
@@ -123,63 +120,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
   let isProcessing = false;
-let awaitingInput = false;
-let imagesPath = [];
-setInterval(async () => {
-  if (isProcessing && !awaitingInput) return;  // Skip if already processing
-  isProcessing = true;
+  let awaitingInput = false;
+  let imagesPath = [];
+  setInterval(async () => {
+    if (isProcessing && !awaitingInput) return;  // Skip if already processing
+    isProcessing = true;
 
-  if (awaitingInput) {
-    imagesPath.forEach(imagePath => {
-      let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-      if (gameInput.value === name) {
-        pywebview.api.log("!!!")
-        gameInput.value = "";
-        awaitingInput = false;
-        gameSearch.classList.add("d-none");
+    if (awaitingInput) {
+      imagesPath.forEach(imagePath => {
+        let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+        if (gameInput.value === name) {
+          gameInput.value = "";
+          awaitingInput = false;
+          gameSearch.classList.add("d-none");
+        }
+      });
+    }
+
+    try {
+      if (axis[0] < -0.5) {
+        swiper.slidePrev();
+      } else if (axis[0] > 0.5) {
+        swiper.slideNext();
       }
-    });
-  }
 
-  try {
-    if (axis[0] < -0.5) {
-      swiper.slidePrev();
-    } else if (axis[0] > 0.5) {
-      swiper.slideNext();
-    }
-
-    if (buttons[0] === 1) {
-      await pywebview.api.open_file();
-    }
-
-    if (buttons[3] === 1) {
-      let filePath = await pywebview.api.save_path();
-
-
-      if (filePath !== null && games) {
-        games.innerHTML = "";
-        let html = ''
-        imagesPath = await pywebview.api.get_images();
-        imagesPath.forEach(imagePath => {
-          let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-          let path = 'src/' + imagePath
-          let option = `<option value="${name}">`
-          html += option
-        });
-
-
-        games.innerHTML = html;
-        gameSearch.classList.remove("d-none");
-        awaitingInput = true;
-
+      if (buttons[0] === 1) {
+        let game = indexToGame(swiper.realIndex, games);
+        await openGame(game);
       }
+
+      if (buttons[3] === 1) {
+      }
+    } catch (error) {
+      console.error("An error occurred:", error);
+    } finally {
+      isProcessing = false;
     }
-  } catch (error) {
-    console.error("An error occurred:", error);
-  } finally {
-    isProcessing = false;
-  }
-}, 50); // Adjusted interval to 50ms for better efficiency
+  }, 150); // Adjusted interval to 50ms for better efficiency
 
 });
 
@@ -199,4 +176,19 @@ function splitByLastDot(str) {
   const afterLastDot = str.substring(lastDotIndex + 1);
 
   return [beforeLastDot, afterLastDot];
+}
+
+function indexToGame(index, games){
+  return games[1 + index];
+}
+
+async function openGame(game) {
+  const data = { file_name: game }; // Create the object ONLY ONCE
+  await fetch(backendUrl + '/open-file', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json' // Important: Set the Content-Type header
+      },
+      body: JSON.stringify(data) // Stringify the object once
+  });
 }

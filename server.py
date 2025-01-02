@@ -7,6 +7,7 @@ import webview
 import subprocess
 import os
 
+
 app = FastAPI()
 
 app.add_middleware(
@@ -45,11 +46,11 @@ async def get_games():
     return games
 
 class OpenFileInput(BaseModel):
-    file_path: str
+    file_name: str
 
 @app.post("/open-file/")
 async def open_file(input: OpenFileInput):
-        file_path = input.file_path
+        file_path = "games/" + input.file_name
 
         print(f"File path: {file_path}")
         
