@@ -23,7 +23,7 @@ def cleanup():
         print("server.pyw process terminated.")
 
 if __name__ == "__main__":
-    debug = False
+    debug = True
     controller_process = None
     server_process = None
     window = None
