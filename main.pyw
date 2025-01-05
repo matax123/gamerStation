@@ -1,7 +1,6 @@
 import webview
 import subprocess
-import sys
-import logging
+import atexit
 
 def run_script(script, debug):
     """Run a Python script with or without output."""
@@ -10,6 +9,18 @@ def run_script(script, debug):
     else:
         process = subprocess.Popen(["python", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return process
+
+def cleanup():
+    """Ensure the cleanup of subprocesses."""
+    if controller_process:
+        controller_process.terminate()
+        controller_process.wait()  # Wait for the process to terminate
+        print("controller.pyw process terminated.")
+
+    if server_process:
+        server_process.terminate()
+        server_process.wait()  # Wait for the process to terminate
+        print("server.pyw process terminated.")
 
 if __name__ == "__main__":
     debug = False
@@ -21,6 +32,8 @@ if __name__ == "__main__":
         # Run the controller and server scripts
         controller_process = run_script("controller.pyw", debug)
         server_process = run_script("server.pyw", debug)
+
+        atexit.register(cleanup)
 
         # Create the webview window
         if(debug):
