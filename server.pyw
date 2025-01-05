@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import time
 import uvicorn
-import webview
 import subprocess
 import os
+import threading
+import pygetwindow as gw
+import time
 
 
 app = FastAPI()
@@ -18,24 +19,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+gameRunning = False
 
-
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to FastAPI!"}
-
-class Item(BaseModel):
-    name: str
-    description: str = None
-
-@app.post("/process-item/")
-async def process_item(item: Item):
-    # Wait for the async process to complete
-    return {"result": 'hi'} 
 
 @app.post("/get-images/")
 async def get_images():
-    folder_path = "./img/"
+    folder_path = "./src/img/"
     images = os.listdir(folder_path)
     return images
 
@@ -50,24 +39,33 @@ class OpenFileInput(BaseModel):
 
 @app.post("/open-file/")
 async def open_file(input: OpenFileInput):
+        global gameRunning
         file_path = "games/" + input.file_name
 
-        print(f"File path: {file_path}")
-        
-        # Check if the file exists
+        command = f"start /wait {file_path}"
+
         if os.path.exists(file_path):
             try:
-                # Log to confirm file exists
-                print(f"File found: {file_path}")
-                
-                # Open the file using the default program (Windows example)
-                subprocess.run(f"start {file_path}", shell=True, check=True)
-                print(f"Opened file: {file_path}")
-                # Update the status in the browser
+                threading.Thread(target=start_program, args=(command,)).start()
+                return "File opened!"
             except subprocess.CalledProcessError as e:
                 print(f"Error opening file: {e}")
         else:
             print("File does not exist!")
+
+@app.post("/check-game/")
+async def check_game():
+    print(gameRunning)
+    return gameRunning
+
+def start_program(command):
+    global gameRunning
+    print("Starting program...")
+    gameRunning = True
+    process = subprocess.Popen(command, shell=True)
+    process.wait()
+    gameRunning = False
+    print("Program ended!")
 
 # Entry point for running the app using `python server.py`
 if __name__ == "__main__":

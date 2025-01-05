@@ -17,7 +17,6 @@ async function loadGames() {
 
 function generateSlide(url) {
   url = "../img/" + url;
-  console.log(url)
   return `
     <div class="swiper-slide">
       <img src="${url}" >
@@ -29,12 +28,10 @@ async function generateSlides(images, games) {
   let swiperWrapper = document.querySelector('.swiper-wrapper');
   swiperWrapper.innerHTML = '';
   let html = '';
-  let gamesDisplayed = 0;
+  let gamesDisplayed = [];
   images.forEach(image => {
-    console.log(splitByLastDot(image))
     game = games.find(game => splitByLastDot(game)[0] === splitByLastDot(image)[0]);
-    // console.log(game)
-    if (game) { html += generateSlide(image); gamesDisplayed++; }
+    if (game) { html += generateSlide(image); gamesDisplayed.push(game); }
   });
   swiperWrapper.innerHTML = html;
   return gamesDisplayed;
@@ -48,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
   let swiper;
-  if (gamesDisplayed >= 5) {
+  if (gamesDisplayed.length >= 5) {
     swiper = new Swiper('.swiper-container', {
       slidesPerView: 3, // Show 3 slides at once
       slidesPerGroup: 1, // Slide 3 slides per click
@@ -57,13 +54,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       loopAdditionalSlides: 1,
       loopedSlides: 1,
       effect: 'coverflow', // Enable the coverflow effect
-      // loop: true, // Enable loop mode
       coverflowEffect: {
         rotate: 30, // Adjust rotation angle for 3D effect
         stretch: 0, // Disable stretching of slides
         depth: 70, // Adjust depth for 3D effect
         modifier: 1, // Adjust modifier for perspective
-        slideShadows: true, // Enable shadows for depth perception
+        slideShadows: true, // Show shadows for better
       },
       navigation: {
         nextEl: '.swiper-button-next',
@@ -96,18 +92,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log("WebSocket connected!");
     };
 
-    websocket.onmessage = (event) => {
+    websocket.onmessage = async (event) => {
       try {
         let input = JSON.parse(event.data);
         if (input.type === "axis") axis[input.axis] = input.value;
         if (input.type === "button") buttons[input.button] = input.value;
+        if (axis[0] < -0.5) {
+          swiper.slidePrev();
+        } else if (axis[0] > 0.5) {
+          swiper.slideNext();
+        }
+
+        if (buttons[0] === 1) {
+          let gameOpened = await checkGameOpened();
+
+          if (gameOpened == true) return;
+          let game = indexToGame(swiper.realIndex, gamesDisplayed);
+          console.log(game)
+          await openGame(game);
+        }
       } catch (error) {
         console.error("JSON parsing error:", error, event.data);
       }
     };
 
     websocket.onclose = (event) => {
-      console.log("WebSocket disconnected. Reconnecting in 1 second...");
       setTimeout(connectWebSocket, 1000);
     };
 
@@ -118,46 +127,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   connectWebSocket();
 
-
-  let isProcessing = false;
-  let awaitingInput = false;
-  let imagesPath = [];
-  setInterval(async () => {
-    if (isProcessing && !awaitingInput) return;  // Skip if already processing
-    isProcessing = true;
-
-    if (awaitingInput) {
-      imagesPath.forEach(imagePath => {
-        let name = imagePath.replace('.png', '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-        if (gameInput.value === name) {
-          gameInput.value = "";
-          awaitingInput = false;
-          gameSearch.classList.add("d-none");
-        }
-      });
-    }
-
-    try {
-      if (axis[0] < -0.5) {
-        swiper.slidePrev();
-      } else if (axis[0] > 0.5) {
-        swiper.slideNext();
-      }
-
-      if (buttons[0] === 1) {
-        let game = indexToGame(swiper.realIndex, games);
-        await openGame(game);
-      }
-
-      if (buttons[3] === 1) {
-      }
-    } catch (error) {
-      console.error("An error occurred:", error);
-    } finally {
-      isProcessing = false;
-    }
-  }, 150); // Adjusted interval to 50ms for better efficiency
-
+  async function checkGameOpened() {
+    let result = await fetch(backendUrl + '/check-game', { method: 'POST' });
+    let gameOpened = await result.text();
+    if(gameOpened == "false") return false;
+    else return true;
+  }
 });
 
 
@@ -178,17 +153,20 @@ function splitByLastDot(str) {
   return [beforeLastDot, afterLastDot];
 }
 
-function indexToGame(index, games){
-  return games[1 + index];
+function indexToGame(index, gamesDisplayed) {
+  console.log(index)
+  console.log(gamesDisplayed)
+  if(index === gamesDisplayed.length - 1) return gamesDisplayed[0];
+  else return gamesDisplayed[index + 1];
 }
 
 async function openGame(game) {
   const data = { file_name: game }; // Create the object ONLY ONCE
   await fetch(backendUrl + '/open-file', {
-      method: 'POST',
-      headers: {
-          'Content-Type': 'application/json' // Important: Set the Content-Type header
-      },
-      body: JSON.stringify(data) // Stringify the object once
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json' // Important: Set the Content-Type header
+    },
+    body: JSON.stringify(data) // Stringify the object once
   });
 }
