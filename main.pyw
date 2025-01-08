@@ -23,7 +23,7 @@ def cleanup():
         print("server.pyw process terminated.")
 
 if __name__ == "__main__":
-    debug = True
+    debug = False
     controller_process = None
     server_process = None
     window = None
@@ -36,10 +36,7 @@ if __name__ == "__main__":
         atexit.register(cleanup)
 
         # Create the webview window
-        if(debug):
-            window = webview.create_window('My Webview App', './src/index.html', width=1500, height=1000)
-        else:
-            window = webview.create_window('My Webview App', './src/index.html', fullscreen=True)
+        window = webview.create_window('My Webview App', './src/index.html', width=1500, height=1000)
         
         # Start the webview event loop
         webview.start(debug=debug)

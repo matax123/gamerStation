@@ -40,10 +40,9 @@ class OpenFileInput(BaseModel):
 @app.post("/open-file/")
 async def open_file(input: OpenFileInput):
         global gameRunning
-        file_path = "games/" + input.file_name
-        print(file_path)
+        file_path = f"games/{input.file_name}"
 
-        command = f'start /wait "{file_path}"'
+        command = f"start /wait {file_path}"
 
         if os.path.exists(file_path):
             try:
