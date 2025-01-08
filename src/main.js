@@ -84,6 +84,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let axis = {};
   let buttons = {};
   let websocket;
+  let paused = false;
 
   function connectWebSocket() {
     websocket = new WebSocket("ws://localhost:8765");
@@ -104,12 +105,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         if (buttons[0] === 1) {
-          let gameOpened = await checkGameOpened();
-
+          if(paused) return;
+          let gameOpened = await checkGameOpened();          
           if (gameOpened == true) return;
+
           let game = indexToGame(swiper.realIndex, gamesDisplayed);
-          console.log(game)
-          await openGame(game);
+          paused = true;
+          openGame(game);
+          await sleep(3000);
+          paused = false;
         }
       } catch (error) {
         console.error("JSON parsing error:", error, event.data);
@@ -139,6 +143,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 //META FUNCTIONS
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function splitByLastDot(str) {
   const lastDotIndex = str.lastIndexOf('.');
 
