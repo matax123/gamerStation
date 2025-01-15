@@ -56,8 +56,8 @@ async def handle_client(websocket):
 
 async def main():
     # Start the WebSocket server
-    server = await websockets.serve(handle_client, "localhost", 8765)
-    print("WebSocket server started on ws://localhost:8765")
+    server = await websockets.serve(handle_client, "localhost", 8401)
+    print("WebSocket server started on ws://localhost:8401")
 
     try:
         # Keep the server running
@@ -70,8 +70,4 @@ async def main():
         await server.wait_closed()
         print("WebSocket server closed.")
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Program interrupted by user.")
+asyncio.run(main())

@@ -67,7 +67,5 @@ def start_program(command):
     gameRunning = False
     print("Program ended!")
 
-# Entry point for running the app using `python server.py`
 if __name__ == "__main__":
-    # Make sure to pass the app instance as a string reference
-    uvicorn.run("server:app", host="127.0.0.1", port=8400, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=8400, log_level="info")
