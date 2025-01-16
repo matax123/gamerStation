@@ -15,7 +15,7 @@ body {
   width: 100%;
   height: 100%;
   max-width: 1500px;
-  max-height: 670px;
+  max-height: 700px;
   margin: 10px auto;
   padding: 0 50px; /* Add padding for button visibility */
   box-sizing: border-box; /* Important: Include padding in width calculation */
