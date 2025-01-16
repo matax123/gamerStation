@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let paused = false;
 
   function connectWebSocket() {
-    websocket = new WebSocket("ws://localhost:8765");
+    websocket = new WebSocket("ws://localhost:8401");
 
     websocket.onopen = (event) => {
       console.log("WebSocket connected!");
