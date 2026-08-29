@@ -11,6 +11,15 @@
 
 <body>
 
+  <!-- Botón tuerca -->
+  <button id="settingsBtn" class="settings-btn" title="Configuración" aria-label="Configuración" onclick="window.openSettings && window.openSettings()">
+    <!-- gear icon SVG -->
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 9 15a1.65 1.65 0 0 0-1-1.51V13a1.65 1.65 0 0 0 1-1.51 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 13 7a1.65 1.65 0 0 0 1 1.51V9a1.65 1.65 0 0 0-1 1.51z"></path>
+    </svg>
+  </button>
+
   <main class="main">
     <div class="swiper swiper-container">
       <div class="swiper-wrapper">
@@ -20,8 +29,31 @@
     </div>
   </main>
 
+  <!-- Modal configuración -->
+  <div id="settingsModal" class="settings-modal hidden">
+    <div class="settings-overlay"></div>
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Configuración</h2>
+        <button id="settingsClose" class="settings-close" aria-label="Cerrar">&times;</button>
+      </div>
 
+      <div class="settings-body">
+        <!-- Engines + ROMs por plataforma -->
+        <section class="settings-section">
+          <div class="settings-section-header">
+            <h3>Plataformas</h3>
+          </div>
+          <div id="enginesList" class="engines-grid"></div>
+        </section>
+      </div>
 
+      <div class="settings-footer">
+        <span id="settingsStatus" class="settings-status"></span>
+        <button id="settingsSave" class="btn btn-save">Guardar</button>
+      </div>
+    </div>
+  </div>
 
 </body>
 

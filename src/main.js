@@ -3,6 +3,10 @@ const gameSearch = document.getElementById("gameSearch");
 const games = document.getElementById("games");
 const backendUrl = "http://localhost:8400";
 
+// estado global para recarga sin refresh
+let swiper = null;
+let gamesDisplayed = [];
+
 async function loadImages() {
   let result = await fetch(backendUrl + '/get-images', { method: 'POST' });
   let images = await result.json();
@@ -11,15 +15,24 @@ async function loadImages() {
 
 async function loadGames() {
   let result = await fetch(backendUrl + '/get-games', { method: 'POST' });
-  let games = await result.json();
-  return games;
+  let raw = await result.json();
+  // Normalizar: backend nuevo devuelve [{platform,file,path,name}], legacy devuelve [string]
+  if (!Array.isArray(raw)) return [];
+  if (raw.length === 0) return [];
+  if (typeof raw[0] === 'string') {
+    return raw.map(f => ({ platform: 'UNKNOWN', file: f, path: `games/${f}`, name: splitByLastDot(f)[0] }));
+  }
+  return raw;
 }
 
-function generateSlide(url) {
+function generateSlide(url, game) {
   url = "../img/" + url;
+  const badge = game && game.platform && game.platform !== 'UNKNOWN' ? `<span class="slide-badge">${game.platform}</span>` : '';
+  const title = game ? game.name : '';
   return `
-    <div class="swiper-slide">
-      <img src="${url}" >
+    <div class="swiper-slide" data-platform="${game ? game.platform : ''}" data-path="${game ? game.path : ''}">
+      <img src="${url}" alt="${title}">
+      ${badge}
     </div>
   `
 }
@@ -29,37 +42,53 @@ async function generateSlides(images, games) {
   swiperWrapper.innerHTML = '';
   let html = '';
   let gamesDisplayed = [];
+  // games es [{platform,file,path,name}]
   images.forEach(image => {
-    game = games.find(game => splitByLastDot(game)[0] === splitByLastDot(image)[0]);
-    if (game) { html += generateSlide(image); gamesDisplayed.push(game); }
+    const imgName = splitByLastDot(image)[0].toLowerCase();
+    const game = games.find(g => g.name.toLowerCase() === imgName || g.file.toLowerCase() === image.toLowerCase());
+    if (game) { html += generateSlide(image, game); gamesDisplayed.push(game); }
   });
+  // Si no hay match por imagen, mostrar todos los juegos con placeholder (sin imagen)
+  if (gamesDisplayed.length === 0 && games.length > 0) {
+    games.forEach(g => {
+      // buscar imagen por nombre, si no hay usar placeholder
+      const hasImg = images.some(img => splitByLastDot(img)[0].toLowerCase() === g.name.toLowerCase());
+      if (!hasImg) {
+        html += `<div class="swiper-slide slide-noimg" data-platform="${g.platform}" data-path="${g.path}"><div class="slide-noimg-inner"><span class="slide-platform">${g.platform}</span><span class="slide-title">${g.name}</span></div></div>`;
+        gamesDisplayed.push(g);
+      }
+    });
+  }
   swiperWrapper.innerHTML = html;
+  if (gamesDisplayed.length === 0 && games.length > 0) {
+    // fallback: mostrar todos aunque no tengan imagen
+    swiperWrapper.innerHTML = games.map(g => `<div class="swiper-slide slide-noimg" data-platform="${g.platform}" data-path="${g.path}"><div class="slide-noimg-inner"><span class="slide-platform">${g.platform}</span><span class="slide-title">${g.name}</span></div></div>`).join('');
+    gamesDisplayed = [...games];
+  }
+  if (gamesDisplayed.length === 0) {
+    swiperWrapper.innerHTML = '<p class="no-games-msg">Sin juegos — configura un engine y su carpeta de ROMs en ⚙</p>';
+  }
   return gamesDisplayed;
 }
 
 
-document.addEventListener('DOMContentLoaded', async () => {
-  let images = await loadImages();
-  let games = await loadGames();
-  let gamesDisplayed = await generateSlides(images, games);
-
-
-  let swiper;
+function initSwiper() {
+  if (swiper) { try { swiper.destroy(true, true); } catch(e) {} swiper = null; }
   if (gamesDisplayed.length >= 5) {
     swiper = new Swiper('.swiper-container', {
-      slidesPerView: 3, // Show 3 slides at once
-      slidesPerGroup: 1, // Slide 3 slides per click
-      spaceBetween: 0, // Spacing between slides
-      loop: true, // Enable loop mode
+      slidesPerView: 3,
+      slidesPerGroup: 1,
+      spaceBetween: 0,
+      loop: true,
       loopAdditionalSlides: 1,
       loopedSlides: 1,
-      effect: 'coverflow', // Enable the coverflow effect
+      effect: 'coverflow',
       coverflowEffect: {
-        rotate: 30, // Adjust rotation angle for 3D effect
-        stretch: 0, // Disable stretching of slides
-        depth: 70, // Adjust depth for 3D effect
-        modifier: 1, // Adjust modifier for perspective
-        slideShadows: true, // Show shadows for better
+        rotate: 30,
+        stretch: 0,
+        depth: 70,
+        modifier: 1,
+        slideShadows: true,
       },
       navigation: {
         nextEl: '.swiper-button-next',
@@ -67,8 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
       initialSlide: 1,
     });
-  }
-  else {
+  } else {
     swiper = new Swiper('.swiper-container', {
       loop: true,
       navigation: {
@@ -77,6 +105,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
     });
   }
+}
+
+async function reloadGames() {
+  try {
+    const images = await loadImages();
+    const games = await loadGames();
+    gamesDisplayed = await generateSlides(images, games);
+    initSwiper();
+    console.log('[reloadGames] juegos recargados:', gamesDisplayed.length);
+  } catch (e) {
+    console.error('[reloadGames]', e);
+  }
+}
+window.reloadGames = reloadGames;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const images = await loadImages();
+  const games = await loadGames();
+  gamesDisplayed = await generateSlides(images, games);
+  initSwiper();
 
 
 
@@ -84,7 +132,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   let axis = {};
   let buttons = {};
   let websocket;
-  let paused = false;
+  let inputLocked = false;
+  let prevButton0 = 0;
+  let pollInterval = null;
+
+  function startGamePolling() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+      const running = await checkGameOpened();
+      if (!running) {
+        inputLocked = false;
+        clearInterval(pollInterval);
+        pollInterval = null;
+        console.log('[input] desbloqueado, juego cerrado');
+      } else {
+        console.log('[input] juego sigue abierto, input bloqueado');
+      }
+    }, 1000);
+  }
+
+  // Al iniciar, si ya hay un juego abierto, bloquear input
+  checkGameOpened().then(running => {
+    if (running) {
+      inputLocked = true;
+      console.log('[input] juego ya abierto al iniciar, bloqueando input');
+      startGamePolling();
+    }
+  });
 
   function connectWebSocket() {
     websocket = new WebSocket("ws://localhost:8401");
@@ -98,22 +172,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         let input = JSON.parse(event.data);
         if (input.type === "axis") axis[input.axis] = input.value;
         if (input.type === "button") buttons[input.button] = input.value;
+
+        // Si el input está bloqueado, ignorar todo hasta que el juego cierre
+        if (inputLocked) return;
+
+        // Navegación con debounce simple (solo si no está bloqueado)
         if (axis[0] < -0.5) {
-          swiper.slidePrev();
+          swiper?.slidePrev();
         } else if (axis[0] > 0.5) {
-          swiper.slideNext();
+          swiper?.slideNext();
         }
 
-        if (buttons[0] === 1) {
-          if(paused) return;
-          let gameOpened = await checkGameOpened();          
-          if (gameOpened == true) return;
+        // Detección de flanco: solo al presionar (0 -> 1), no mientras se mantiene
+        const isPressed = buttons[0] === 1;
+        const wasPressed = prevButton0 === 1;
+        prevButton0 = buttons[0] === 1 ? 1 : 0;
 
-          let game = indexToGame(swiper.realIndex, gamesDisplayed);
-          paused = true;
-          openGame(game);
-          await sleep(3000);
-          paused = false;
+        if (isPressed && !wasPressed) {
+          // Bloquear inmediatamente para evitar doble lanzamiento
+          inputLocked = true;
+
+          const game = indexToGame(swiper.realIndex, gamesDisplayed);
+          console.log('[input] lanzando juego', game);
+          const result = await openGame(game);
+          // Si el backend rechazó por alreadyRunning, mantener bloqueo
+          // Si fue exitoso, también mantener bloqueo hasta que cierre
+          // Si hubo error y no está corriendo nada, desbloquear
+          if (result && result.alreadyRunning) {
+            console.log('[input] backend: ya hay juego en ejecución');
+          } else if (result && result.error && !result.alreadyRunning) {
+            console.log('[input] error al lanzar, desbloqueando', result.error);
+            inputLocked = false;
+            return;
+          }
+          startGamePolling();
         }
       } catch (error) {
         console.error("JSON parsing error:", error, event.data);
@@ -142,6 +234,155 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
+// ── Settings / .conf ──────────────────────────────────────────
+const PLATFORMS = ["NES", "SNES", "GBA", "PS1", "PS2", "WIIU", "SWITCH"];
+let appConfig = { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+
+function normalizeConfig(raw) {
+  if (!raw) return { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+  let engines = raw.engines;
+  let roms = raw.romFolders;
+  if (Array.isArray(engines)) engines = {};
+  if (Array.isArray(roms)) roms = {};
+  if (!engines || typeof engines !== "object") engines = {};
+  if (!roms || typeof roms !== "object") roms = {};
+  const normEngines = {};
+  const normRoms = {};
+  PLATFORMS.forEach(p => { normEngines[p] = engines[p] || ""; normRoms[p] = roms[p] || ""; });
+  return { engines: normEngines, romFolders: normRoms };
+}
+
+async function loadConfig() {
+  try {
+    const r = await fetch(backendUrl + '/config');
+    const data = await r.json();
+    appConfig = normalizeConfig(data);
+  } catch (e) {
+    console.error('loadConfig', e);
+    appConfig = { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+  }
+  renderConfig();
+}
+
+function renderConfig() {
+  const engGrid = document.getElementById('enginesList');
+  if (!engGrid) return;
+
+  engGrid.innerHTML = '';
+  PLATFORMS.forEach(platform => {
+    const exePath = appConfig.engines[platform] || "";
+    const romPath = appConfig.romFolders[platform] || "";
+    const hasExe = !!exePath;
+    const hasRom = !!romPath;
+    const row = document.createElement('div');
+    row.className = 'engine-row';
+    row.innerHTML = `
+      <span class="engine-label">${platform}</span>
+      <div class="engine-fields">
+        <div class="engine-field">
+          <span class="engine-path ${hasExe ? 'has-value' : 'empty'}" title="${exePath}">${hasExe ? exePath : 'Sin .exe'}</span>
+          <button class="engine-btn" data-exe="${platform}">${hasExe ? 'Cambiar .exe' : 'Seleccionar .exe'}</button>
+          ${hasExe ? `<button class="engine-clear" data-clear-exe="${platform}" title="Quitar .exe">✕</button>` : ''}
+        </div>
+        <div class="engine-field">
+          <span class="engine-path ${hasRom ? 'has-value' : 'empty'}" title="${romPath}">${hasRom ? romPath : 'Sin carpeta ROMs'}</span>
+          <button class="engine-btn engine-btn-rom" data-rom="${platform}">${hasRom ? 'Cambiar carpeta' : 'Seleccionar carpeta'}</button>
+          ${hasRom ? `<button class="engine-clear" data-clear-rom="${platform}" title="Quitar carpeta">✕</button>` : ''}
+        </div>
+      </div>
+    `;
+    engGrid.appendChild(row);
+  });
+
+  engGrid.querySelectorAll('[data-exe]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const platform = btn.dataset.exe;
+      try {
+        const r = await fetch(backendUrl + '/browse-file', { method: 'POST' });
+        const { path } = await r.json();
+        if (path) { appConfig.engines[platform] = path; renderConfig(); }
+      } catch (e) { console.error(e); }
+    });
+  });
+  engGrid.querySelectorAll('[data-clear-exe]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      appConfig.engines[btn.dataset.clearExe] = "";
+      renderConfig();
+    });
+  });
+  engGrid.querySelectorAll('[data-rom]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const platform = btn.dataset.rom;
+      try {
+        const r = await fetch(backendUrl + '/browse-folder', { method: 'POST' });
+        const { path } = await r.json();
+        if (path) { appConfig.romFolders[platform] = path; renderConfig(); }
+      } catch (e) { console.error(e); }
+    });
+  });
+  engGrid.querySelectorAll('[data-clear-rom]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      appConfig.romFolders[btn.dataset.clearRom] = "";
+      renderConfig();
+    });
+  });
+}
+
+async function saveConfig() {
+  const status = document.getElementById('settingsStatus');
+  try {
+    const r = await fetch(backendUrl + '/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(appConfig)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    if (status) { status.textContent = 'Guardado ✓'; setTimeout(() => status.textContent = '', 2000); }
+    // recargar juegos sin refresh completo
+    await reloadGames();
+    // cerrar modal tras guardar
+    setTimeout(() => closeSettings(), 400);
+  } catch (e) {
+    console.error(e);
+    if (status) status.textContent = 'Error al guardar';
+  }
+}
+
+function openSettings() {
+  console.log('openSettings');
+  const m = document.getElementById('settingsModal');
+  if (m) { m.classList.remove('hidden'); m.style.display = 'flex'; }
+  loadConfig();
+}
+function closeSettings() {
+  console.log('closeSettings');
+  const m = document.getElementById('settingsModal');
+  if (m) { m.classList.add('hidden'); m.style.display = 'none'; }
+}
+window.openSettings = openSettings;
+window.closeSettings = closeSettings;
+
+function initSettings() {
+  console.log('initSettings', document.readyState);
+  const btn = document.getElementById('settingsBtn');
+  const closeBtn = document.getElementById('settingsClose');
+  const overlay = document.querySelector('.settings-overlay');
+  const saveBtn = document.getElementById('settingsSave');
+  console.log('settings elements', { btn, closeBtn, overlay, saveBtn });
+  if (!btn) { console.error('settingsBtn no encontrado'); return; }
+  btn.addEventListener('click', openSettings);
+  closeBtn?.addEventListener('click', closeSettings);
+  overlay?.addEventListener('click', closeSettings);
+  saveBtn?.addEventListener('click', saveConfig);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
+  loadConfig();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initSettings);
+} else {
+  initSettings();
+}
+
 //META FUNCTIONS
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -162,19 +403,37 @@ function splitByLastDot(str) {
 }
 
 function indexToGame(index, gamesDisplayed) {
-  console.log(index)
-  console.log(gamesDisplayed)
-  if(index === gamesDisplayed.length - 1) return gamesDisplayed[0];
-  else return gamesDisplayed[index + 1];
+  if (!gamesDisplayed || gamesDisplayed.length === 0) return null;
+  const n = gamesDisplayed.length;
+  const normalized = ((index % n) + n) % n;
+  console.log(`indexToGame: realIndex=${index} -> ${normalized}`, gamesDisplayed[normalized]);
+  return gamesDisplayed[normalized];
 }
 
 async function openGame(game) {
-  const data = { file_name: game }; // Create the object ONLY ONCE
-  await fetch(backendUrl + '/open-file', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json' // Important: Set the Content-Type header
-    },
-    body: JSON.stringify(data) // Stringify the object once
-  });
+  let payload;
+  if (typeof game === 'string') {
+    payload = { file_name: game };
+  } else if (game && game.path && game.platform) {
+    payload = { file_path: game.path, platform: game.platform };
+  } else if (game && game.file) {
+    payload = { file_name: game.file };
+  } else {
+    console.error('openGame: game inválido', game);
+    return { error: 'game inválido' };
+  }
+  try {
+    const r = await fetch(backendUrl + '/open-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data && data.error) return data;
+    return data;
+  } catch (e) {
+    console.error('openGame fetch error', e);
+    return { error: String(e) };
+  }
 }
+
