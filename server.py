@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Add the libs directory to sys.path so Python can find the modules there
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Python313', 'dependencies'))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel

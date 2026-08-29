@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Add the libs directory to sys.path so Python can find the modules there
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Python313', 'dependencies'))
+
 import webview
 import multiprocessing
 
