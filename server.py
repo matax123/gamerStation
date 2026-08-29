@@ -35,7 +35,7 @@ game_lock = threading.Lock()
 
 # ── Config .conf ──────────────────────────────────────────────
 CONF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.conf")
-PLATFORMS = ["NES", "SNES", "GBA", "PS1", "PS2", "WIIU", "SWITCH"]
+PLATFORMS = ["NES", "SNES", "GBA", "PS1", "PS2", "PS3", "WIIU", "SWITCH"]
 DEFAULT_CONFIG = {"engines": {p: "" for p in PLATFORMS}, "romFolders": {p: "" for p in PLATFORMS}}
 
 # Comando por plataforma — normaliza rutas a formato Windows nativo
@@ -53,6 +53,9 @@ def build_launch_command(platform: str, engine: str, rom: str) -> str:
         return f'start /wait "" "{engine}" "{rom}"'
     if p in ("PS2", "PS1", "GBA", "NES", "SNES"):
         return f'start /wait "" "{engine}" "{rom}" -fullscreen'
+    if p == "PS3":
+        # RPCS3: no acepta -fullscreen; abre en fullscreen si así quedó configurado
+        return f'start /wait "" "{engine}" --no-gui "{rom}"'
     return f'start /wait "" "{engine}" "{rom}"'
 
 def ensure_config():
@@ -105,6 +108,7 @@ LIBRETRO_PLAYLIST = {
     "GBA": "Nintendo - Game Boy Advance",
     "PS1": "Sony - PlayStation",
     "PS2": "Sony - PlayStation 2",
+    "PS3": "Sony - PlayStation 3",
     "WIIU": "Nintendo - Wii U",
     "SWITCH": "Nintendo - Nintendo Switch",
 }
@@ -177,17 +181,122 @@ def _libretro_candidates(platform: str, rom_file: str) -> List[str]:
         base_names.append(raw_no_ext)
     # expandir con sufijos de región comunes en libretro
     suffixes = ["", " (USA)", " (USA) (En,Ja)", " (Europe)", " (Japan)", " (World)"]
+
+    def _dash_variants(n: str) -> List[str]:
+        """Variantes de guiones: libretro usa 'Xrd -Sign -' mientras los ROMs
+        suelen tener 'Xrd - Sign'. Genera combinaciones pegadas y envueltas."""
+        variants = [n]
+        # pegar guiones sueltos: "A - Sign" -> "A -Sign"
+        v = re.sub(r'\s+-\s+', ' -', n)
+        if v not in variants: variants.append(v)
+        # envolver: "A - Sign" -> "A -Sign-"
+        v2 = re.sub(r'\s+-\s+([^-\s].*?)$', r' -\1-', n)
+        if v2 not in variants: variants.append(v2)
+        # todo pegado: "A-Sign"
+        v3 = re.sub(r'\s+-\s+', '-', n)
+        if v3 not in variants: variants.append(v3)
+        # libretro usa ":" donde los ROMs usan "-": "A - B" -> "A: B"
+        v4 = re.sub(r'\s+-\s+', ': ', n)
+        if v4 not in variants: variants.append(v4)
+        return variants
+
     names = []
     for base in base_names:
-        for suf in suffixes:
-            v = base + suf
-            if v not in names:
-                names.append(v)
+        for dv in _dash_variants(base):
+            for suf in suffixes:
+                v = dv + suf
+                if v not in names:
+                    names.append(v)
+        # fallback: recortar subtítulos "Título - Subtítulo" -> "Título"
+        # (libretro a veces no tiene la edición/subtítulo, ej. "Call of Duty 3 - Special Edition")
+        short = re.split(r'\s+-\s+', base)[0].strip()
+        if short and short != base:
+            for suf in suffixes:
+                v = short + suf
+                if v not in names:
+                    names.append(v)
     urls = []
     for n in names:
         enc = urllib.parse.quote(n + ".png")
         urls.append(f"{LIBRETRO_BASE}/{urllib.parse.quote(playlist)}/Named_Boxarts/{enc}")
     return urls
+
+# ── Fallback: listado real de Named_Boxarts (con caché en disco) ──
+_boxart_cache: Dict[str, Optional[List[str]]] = {}
+
+def _normalize_for_match(n: str) -> str:
+    """Normaliza un título para comparación difusa."""
+    n = n.lower()
+    n = re.sub(r'\(.*?\)', '', n)
+    n = re.sub(r'\[.*?\]', '', n)
+    n = re.sub(r'[^a-z0-9]+', ' ', n)
+    return re.sub(r'\s+', ' ', n).strip()
+
+def _get_boxart_listing(platform: str) -> Optional[List[str]]:
+    """Descarga (una vez por plataforma) el listado de archivos en Named_Boxarts."""
+    if platform in _boxart_cache:
+        return _boxart_cache[platform]
+    playlist = LIBRETRO_PLAYLIST.get(platform.upper(), "")
+    if not playlist:
+        _boxart_cache[platform] = None
+        return None
+    # caché en disco para no re-descargar en cada arranque
+    cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".boxarts_{platform}.cache")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                listing = json.load(f)
+            _boxart_cache[platform] = listing
+            return listing
+        except Exception:
+            pass
+    url = f"{LIBRETRO_BASE}/{urllib.parse.quote(playlist)}/Named_Boxarts/"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+        # extraer nombres de archivos .png del listado HTML
+        listing = re.findall(r'href="([^"]+\.png)"', html, re.IGNORECASE)
+        listing = [urllib.parse.unquote(x) for x in listing]
+        _boxart_cache[platform] = listing or None
+        if listing:
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(listing, f)
+            except Exception:
+                pass
+        return _boxart_cache[platform]
+    except Exception as e:
+        print(f"[cover] no se pudo listar boxarts de {platform}: {e}")
+        _boxart_cache[platform] = None
+        return None
+
+def _fuzzy_boxart_match(platform: str, rom_file: str) -> Optional[str]:
+    """Busca el PNG cuyo nombre coincida mejor con el título del ROM."""
+    listing = _get_boxart_listing(platform)
+    if not listing:
+        return None
+    target = _normalize_for_match(os.path.splitext(rom_file)[0])
+    if not target:
+        return None
+    target_words = set(target.split())
+    best, best_score = None, 0.0
+    for fname in listing:
+        cand = _normalize_for_match(os.path.splitext(fname)[0])
+        if not cand:
+            continue
+        cand_words = set(cand.split())
+        if not cand_words:
+            continue
+        # Jaccard sobre palabras + bonus por prefijo común
+        inter = len(target_words & cand_words)
+        union = len(target_words | cand_words)
+        score = inter / union if union else 0.0
+        if score > best_score:
+            best, best_score = fname, score
+    if best and best_score >= 0.6:
+        return best
+    return None
 
 def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Optional[str]:
     """Descarga carátula si no existe. Retorna path relativo o None."""
@@ -224,6 +333,23 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
         except Exception as e:
             print(f"[cover] error {url}: {e}")
             continue
+    # fallback: matching difuso contra el listado real de Named_Boxarts
+    match = _fuzzy_boxart_match(platform, rom_file)
+    if match:
+        url = f"{LIBRETRO_BASE}/{urllib.parse.quote(LIBRETRO_PLAYLIST[platform.upper()])}/Named_Boxarts/{urllib.parse.quote(match)}"
+        try:
+            dest = os.path.join(dest_dir, dest_name + ".png")
+            req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    data = resp.read()
+                    if len(data) >= 500:
+                        with open(dest, "wb") as f:
+                            f.write(data)
+                        print(f"[cover] {platform}/{rom_file} -> {dest_name}.png (fuzzy: {match})")
+                        return dest_name + ".png"
+        except Exception as e:
+            print(f"[cover] error fuzzy {url}: {e}")
     print(f"[cover] no encontrada para {platform}/{rom_file} (clean={clean}, title={title})")
     return None
 
@@ -308,9 +434,22 @@ async def get_games():
             print(f"[get-games] {plat}: carpeta no existe: {folder}")
             continue
         try:
-            for fname in os.listdir(folder):
+            files = os.listdir(folder)
+            # PS1: los juegos pueden ser .cue+.bin (2 archivos) o .iso/.img/.chd (1 archivo).
+            # Ocultar el .bin cuando existe un .cue con el mismo nombre (el .cue es el que se lanza),
+            # y ocultar archivos auxiliares (.sbi, .m3u de sub-archivos ya listados).
+            lower_files = {f.lower() for f in files}
+            aux_exts = (".sbi", ".m3u")
+            for fname in files:
                 fpath = os.path.normpath(os.path.join(folder, fname))
                 if os.path.isfile(fpath):
+                    base_lower = os.path.splitext(fname)[0].lower()
+                    ext = os.path.splitext(fname)[1].lower()
+                    if plat == "PS1":
+                        if ext == ".bin" and (base_lower + ".cue") in lower_files:
+                            continue  # el .cue ya representa este juego
+                        if ext in aux_exts:
+                            continue  # archivos auxiliares de PS1
                     # ignorar archivos de sistema
                     if fname.lower().endswith((".ini", ".db", ".txt")) and fname.lower() in ("desktop.ini", "thumbs.db"):
                         continue

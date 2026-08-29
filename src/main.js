@@ -28,10 +28,11 @@ async function loadGames() {
 
 function generateSlide(url, game) {
   url = "../img/" + url;
-  const title = game ? game.name : '';
+  const title = game ? resolveTitle(game.file) : '';
   return `
     <div class="swiper-slide" data-platform="${game ? game.platform : ''}" data-path="${game ? game.path : ''}">
       <img src="${url}" alt="${title}">
+      <div class="slide-caption">${title}</div>
     </div>
   `
 }
@@ -122,6 +123,38 @@ function initSwiper() {
   });
 }
 
+function updateCoversInPlace(images) {
+  // Actualiza solo las <img> de los slides existentes (incluye clones del loop),
+  // sin destruir ni recrear el Swiper -> no se nota el refresco.
+  const imgMap = new Map();
+  images.forEach(img => {
+    imgMap.set(cleanRomName(img).toLowerCase(), img);
+    imgMap.set(splitByLastDot(img)[0].toLowerCase(), img);
+  });
+  let changed = 0;
+  gamesDisplayed.forEach(g => {
+    const cleanGame = cleanRomName(g.file).toLowerCase();
+    const cleanName = cleanRomName(g.name).toLowerCase();
+    const title = resolveTitle(g.file).toLowerCase();
+    const img = imgMap.get(cleanGame) || imgMap.get(cleanName) || imgMap.get(title);
+    if (!img) return;
+    const want = "../img/" + img;
+    const slides = document.querySelectorAll(`.swiper-slide[data-path="${CSS.escape(g.path)}"]`);
+    slides.forEach(slide => {
+      const imgEl = slide.querySelector('img');
+      if (imgEl) {
+        if (!imgEl.getAttribute('src').endsWith(img)) { imgEl.src = want; changed++; }
+      } else if (slide.classList.contains('slide-noimg')) {
+        // placeholder sin carátula -> poner la imagen
+        slide.classList.remove('slide-noimg');
+        slide.innerHTML = `<img src="${want}" alt="${g.name}"><div class="slide-caption">${resolveTitle(g.file)}</div>`;
+        changed++;
+      }
+    });
+  });
+  return changed;
+}
+
 function startCoverPolling(initialImages, initialGames) {
   if (coverPollInterval) clearInterval(coverPollInterval);
   let lastCount = initialImages.length;
@@ -131,11 +164,9 @@ function startCoverPolling(initialImages, initialGames) {
     try {
       const freshImages = await loadImages();
       if (freshImages.length > lastCount) {
-        console.log(`[cover] nuevas carátulas ${lastCount} -> ${freshImages.length}, recargando`);
+        console.log(`[cover] nuevas carátulas ${lastCount} -> ${freshImages.length}, actualizando in-place`);
         lastCount = freshImages.length;
-        const games = initialGames || await loadGames();
-        gamesDisplayed = await generateSlides(freshImages, games);
-        initSwiper();
+        updateCoversInPlace(freshImages);
       }
       // parar tras 30s (15 checks cada 2s)
       if (checks >= 15) {
@@ -278,11 +309,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 // ── Settings / .conf ──────────────────────────────────────────
-const PLATFORMS = ["NES", "SNES", "GBA", "PS1", "PS2", "WIIU", "SWITCH"];
-let appConfig = { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+const PLATFORMS = ["NES", "SNES", "GBA", "PS1", "PS2", "PS3", "WIIU", "SWITCH"];
+const EMPTY_CONFIG = { engines: Object.fromEntries(PLATFORMS.map(p => [p, ""])), romFolders: Object.fromEntries(PLATFORMS.map(p => [p, ""])) };
+let appConfig = { engines: { ...EMPTY_CONFIG.engines }, romFolders: { ...EMPTY_CONFIG.romFolders } };
 
 function normalizeConfig(raw) {
-  if (!raw) return { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+  if (!raw) return { engines: { ...EMPTY_CONFIG.engines }, romFolders: { ...EMPTY_CONFIG.romFolders } };
   let engines = raw.engines;
   let roms = raw.romFolders;
   if (Array.isArray(engines)) engines = {};
@@ -302,7 +334,7 @@ async function loadConfig() {
     appConfig = normalizeConfig(data);
   } catch (e) {
     console.error('loadConfig', e);
-    appConfig = { engines: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" }, romFolders: { NES: "", SNES: "", GBA: "", PS1: "", PS2: "", WIIU: "", SWITCH: "" } };
+    appConfig = { engines: { ...EMPTY_CONFIG.engines }, romFolders: { ...EMPTY_CONFIG.romFolders } };
   }
   renderConfig();
 }
