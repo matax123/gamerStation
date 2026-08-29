@@ -98,7 +98,7 @@ body {
 .active-game-info {
   position: fixed;
   left: 50%;
-  bottom: 28px;
+  top: 28px;
   z-index: 20;
   width: min(720px, 80vw);
   padding: 10px 24px 12px;
