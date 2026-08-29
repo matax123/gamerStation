@@ -28,11 +28,9 @@ async function loadGames() {
 
 function generateSlide(url, game) {
   url = "../img/" + url;
-  const title = game ? resolveTitle(game.file) : '';
   return `
     <div class="swiper-slide" data-platform="${game ? game.platform : ''}" data-path="${game ? game.path : ''}">
-      <img src="${url}" alt="${title}">
-      <div class="slide-caption">${title}</div>
+      <img src="${url}" alt="${game ? resolveTitle(game.file) : ''}">
     </div>
   `
 }
@@ -121,6 +119,22 @@ function initSwiper() {
     },
     initialSlide: 1,
   });
+  swiper.on('slideChange', updateActiveGameTitle);
+  updateActiveGameTitle();
+}
+
+function updateActiveGameTitle() {
+  const titleEl = document.getElementById('active-game-title');
+  const platformEl = document.getElementById('active-game-platform');
+  if (!titleEl || !platformEl || !swiper || !gamesDisplayed.length) return;
+
+  const index = Number.isInteger(swiper.realIndex) ? swiper.realIndex : swiper.activeIndex;
+  const game = gamesDisplayed[index];
+  if (!game) return;
+
+  // textContent evita que un nombre de ROM pueda alterar el HTML.
+  platformEl.textContent = game.platform || '';
+  titleEl.textContent = resolveTitle(game.file);
 }
 
 function updateCoversInPlace(images) {
@@ -147,7 +161,7 @@ function updateCoversInPlace(images) {
       } else if (slide.classList.contains('slide-noimg')) {
         // placeholder sin carátula -> poner la imagen
         slide.classList.remove('slide-noimg');
-        slide.innerHTML = `<img src="${want}" alt="${g.name}"><div class="slide-caption">${resolveTitle(g.file)}</div>`;
+        slide.innerHTML = `<img src="${want}" alt="${resolveTitle(g.file)}">`;
         changed++;
       }
     });
