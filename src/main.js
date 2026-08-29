@@ -28,12 +28,10 @@ async function loadGames() {
 
 function generateSlide(url, game) {
   url = "../img/" + url;
-  const badge = game && game.platform && game.platform !== 'UNKNOWN' ? `<span class="slide-badge">${game.platform}</span>` : '';
   const title = game ? game.name : '';
   return `
     <div class="swiper-slide" data-platform="${game ? game.platform : ''}" data-path="${game ? game.path : ''}">
       <img src="${url}" alt="${title}">
-      ${badge}
     </div>
   `
 }
