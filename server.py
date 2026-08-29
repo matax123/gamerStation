@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import html
 
 # Add the libs directory to sys.path so Python can find the modules there
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Python313', 'dependencies'))
@@ -113,13 +114,15 @@ LIBRETRO_PLAYLIST = {
     "SWITCH": "Nintendo - Nintendo Switch",
 }
 LIBRETRO_BASE = "https://thumbnails.libretro.com"
+LAUNCHBOX_BASE = "https://gamesdb.launchbox-app.com"
 # Libretro no mantiene una colección completa para PS3.  Cover Century sirve
 # como respaldo para esos títulos que no aparecen en Named_Boxarts.
 COVERCENTURY_BASE = "https://www.covercentury.com/covers"
 # Algunas entradas de Cover Century son escaneos completos (frontal + trasera).
 # Para estos casos preferimos una imagen frontal ya catalogada.
-KNOWN_FRONT_COVERS = {
+LAUNCHBOX_FRONT_COVERS = {
     ("PS3", "batman arkham city"): "https://images.launchbox-app.com/92d960f9-0f81-4ebe-b809-2f5a6cc9b9e3.png",
+    ("PS3", "mortal kombat"): "https://images.launchbox-app.com/1856931a-b576-45cb-8fb1-ee77060be259.jpg",
 }
 
 SERIAL_TITLES = {
@@ -231,6 +234,7 @@ def _libretro_candidates(platform: str, rom_file: str) -> List[str]:
 
 # ── Fallback: listado real de Named_Boxarts (con caché en disco) ──
 _boxart_cache: Dict[str, Optional[List[str]]] = {}
+_launchbox_search_cache: Dict[tuple, List[str]] = {}
 
 def _normalize_for_match(n: str) -> str:
     """Normaliza un título para comparación difusa."""
@@ -306,24 +310,87 @@ def _fuzzy_boxart_match(platform: str, rom_file: str) -> Optional[str]:
         return best
     return None
 
-def _covercentury_candidates(platform: str, rom_file: str) -> List[str]:
-    """Genera URLs de Cover Century para títulos PS3."""
-    if platform.upper() != "PS3":
+LAUNCHBOX_PLATFORMS = {
+    "NES": "Nintendo Entertainment System",
+    "SNES": "Super Nintendo Entertainment System",
+    "GBA": "Nintendo Game Boy Advance",
+    "PS1": "Sony Playstation",
+    "PS2": "Sony Playstation 2",
+    "PS3": "Sony Playstation 3",
+    "WIIU": "Nintendo Wii U",
+    "SWITCH": "Nintendo Switch",
+}
+
+def _launchbox_candidates(platform: str, rom_file: str) -> List[str]:
+    """Busca la portada frontal exacta en el buscador web de LaunchBox."""
+    plat = platform.upper()
+    lb_platform = LAUNCHBOX_PLATFORMS.get(plat)
+    if not lb_platform:
         return []
 
+    title = _resolve_title(platform, rom_file)
+    target = _normalize_for_match(title)
+    cache_key = (plat, target)
+    if cache_key in _launchbox_search_cache:
+        return _launchbox_search_cache[cache_key]
+
+    urls = []
+    known = LAUNCHBOX_FRONT_COVERS.get(cache_key)
+    if known:
+        urls.append(known)
+
+    query = re.sub(r"[^A-Za-z0-9]+", " ", title).strip()
+    if query:
+        try:
+            search_url = (
+                f"{LAUNCHBOX_BASE}/games/results/"
+                f"{urllib.parse.quote(query, safe='')}?platform="
+                f"{urllib.parse.quote(lb_platform, safe='')}"
+            )
+            req = urllib.request.Request(search_url, headers={"User-Agent": "GamerStation/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                page = resp.read().decode("utf-8", errors="ignore")
+
+            cards = re.findall(
+                r'<div[^>]+class="gameCard"[^>]*>(.*?)(?=<div[^>]+class="gameCard"|$)',
+                page,
+                re.IGNORECASE | re.DOTALL,
+            )
+            for card in cards:
+                title_match = re.search(r'<h3[^>]*>(.*?)</h3>', card, re.IGNORECASE | re.DOTALL)
+                platform_match = re.search(
+                    r'<p[^>]*>\s*' + re.escape(lb_platform) + r'\s*</p>',
+                    card,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                image_match = re.search(
+                    r'class="imgOver".*?<img[^>]+src="([^"]+)"',
+                    card,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if not title_match or not platform_match or not image_match:
+                    continue
+                result_title = _normalize_for_match(html.unescape(re.sub(r"<[^>]+>", "", title_match.group(1))))
+                image_url = html.unescape(image_match.group(1))
+                if result_title == target and image_url not in urls:
+                    urls.append(image_url)
+                    break
+        except Exception as e:
+            print(f"[cover] error LaunchBox search {platform}/{rom_file}: {e}")
+
+    _launchbox_search_cache[cache_key] = urls
+    return urls
+
+def _covercentury_candidates(platform: str, rom_file: str) -> List[str]:
+    """Genera URLs de Cover Century como último respaldo."""
+    if platform.upper() != "PS3":
+        return []
     names = []
     for name in (_resolve_title(platform, rom_file), _clean_rom_name(rom_file)):
         if name and name not in names:
             names.append(name)
-
     urls = []
-    known = KNOWN_FRONT_COVERS.get((platform.upper(), _normalize_for_match(names[0]))) if names else None
-    if known:
-        urls.append(known)
-
     for name in names:
-        # Cover Century usa guiones en lugar de espacios y agrupa por la
-        # primera letra del nombre del archivo.
         slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")
         if not slug:
             continue
@@ -331,6 +398,10 @@ def _covercentury_candidates(platform: str, rom_file: str) -> List[str]:
         if url not in urls:
             urls.append(url)
     return urls
+
+def _external_cover_candidates(platform: str, rom_file: str) -> List[str]:
+    """Combina proveedores externos en orden de prioridad."""
+    return _launchbox_candidates(platform, rom_file) + _covercentury_candidates(platform, rom_file)
 
 def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Optional[str]:
     """Descarga carátula si no existe. Retorna path relativo o None."""
@@ -385,8 +456,9 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
         except Exception as e:
             print(f"[cover] error fuzzy {url}: {e}")
     # Cover Century tiene más carátulas de PS3 que el listado de Libretro.
-    for url in _covercentury_candidates(platform, rom_file):
+    for url in _external_cover_candidates(platform, rom_file):
         try:
+            source_name = "LaunchBox" if "launchbox-app.com" in url else "Cover Century"
             dest_ext = ".png" if url.lower().endswith(".png") else ".jpg"
             dest = os.path.join(dest_dir, dest_name + dest_ext)
             req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
@@ -397,7 +469,6 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
                         continue
                     with open(dest, "wb") as f:
                         f.write(data)
-                    source_name = "LaunchBox" if "launchbox-app.com" in url else "Cover Century"
                     print(f"[cover] {platform}/{rom_file} -> {dest_name}{dest_ext} ({source_name}: {url})")
                     return dest_name + dest_ext
         except urllib.error.HTTPError as e:
@@ -405,7 +476,7 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
                 print(f"[cover] HTTP {e.code} {url}")
             continue
         except Exception as e:
-            print(f"[cover] error Cover Century {url}: {e}")
+            print(f"[cover] error {source_name} {url}: {e}")
     print(f"[cover] no encontrada para {platform}/{rom_file} (clean={clean}, title={title})")
     return None
 
