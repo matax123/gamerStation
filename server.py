@@ -113,6 +113,9 @@ LIBRETRO_PLAYLIST = {
     "SWITCH": "Nintendo - Nintendo Switch",
 }
 LIBRETRO_BASE = "https://thumbnails.libretro.com"
+# Libretro no mantiene una colección completa para PS3.  Cover Century sirve
+# como respaldo para esos títulos que no aparecen en Named_Boxarts.
+COVERCENTURY_BASE = "https://www.covercentury.com/covers"
 
 SERIAL_TITLES = {
     "SLUS-20946": "Grand Theft Auto - San Andreas",
@@ -298,6 +301,28 @@ def _fuzzy_boxart_match(platform: str, rom_file: str) -> Optional[str]:
         return best
     return None
 
+def _covercentury_candidates(platform: str, rom_file: str) -> List[str]:
+    """Genera URLs de Cover Century para títulos PS3."""
+    if platform.upper() != "PS3":
+        return []
+
+    names = []
+    for name in (_resolve_title(platform, rom_file), _clean_rom_name(rom_file)):
+        if name and name not in names:
+            names.append(name)
+
+    urls = []
+    for name in names:
+        # Cover Century usa guiones en lugar de espacios y agrupa por la
+        # primera letra del nombre del archivo.
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")
+        if not slug:
+            continue
+        url = f"{COVERCENTURY_BASE}/ps3/{slug[0].lower()}/{slug}.jpg"
+        if url not in urls:
+            urls.append(url)
+    return urls
+
 def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Optional[str]:
     """Descarga carátula si no existe. Retorna path relativo o None."""
     os.makedirs(dest_dir, exist_ok=True)
@@ -350,6 +375,26 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
                         return dest_name + ".png"
         except Exception as e:
             print(f"[cover] error fuzzy {url}: {e}")
+    # Cover Century tiene más carátulas de PS3 que el listado de Libretro.
+    for url in _covercentury_candidates(platform, rom_file):
+        try:
+            dest = os.path.join(dest_dir, dest_name + ".jpg")
+            req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    data = resp.read()
+                    if len(data) < 500:
+                        continue
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                    print(f"[cover] {platform}/{rom_file} -> {dest_name}.jpg (Cover Century: {url})")
+                    return dest_name + ".jpg"
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                print(f"[cover] HTTP {e.code} {url}")
+            continue
+        except Exception as e:
+            print(f"[cover] error Cover Century {url}: {e}")
     print(f"[cover] no encontrada para {platform}/{rom_file} (clean={clean}, title={title})")
     return None
 
