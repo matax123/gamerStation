@@ -455,6 +455,41 @@ async def fetch_covers_bulk():
             missing.append({"platform": g["platform"], "file": g["file"]})
     return {"fetched": fetched, "missing": missing, "total": len(games)}
 
+def _scan_rom_folder(platform: str, folder: str) -> List[dict]:
+    """Recorre una carpeta de ROMs y todas sus subcarpetas."""
+    found = []
+    for current_dir, dirnames, files in os.walk(folder):
+        # Orden estable para que la biblioteca no cambie de posición entre cargas.
+        dirnames.sort(key=str.lower)
+        files.sort(key=str.lower)
+        lower_files = {f.lower() for f in files}
+        aux_exts = (".sbi", ".m3u")
+
+        for fname in files:
+            fpath = os.path.normpath(os.path.join(current_dir, fname))
+            if not os.path.isfile(fpath):
+                continue
+
+            base_lower = os.path.splitext(fname)[0].lower()
+            ext = os.path.splitext(fname)[1].lower()
+            if platform == "PS1":
+                if ext == ".bin" and (base_lower + ".cue") in lower_files:
+                    continue  # el .cue ya representa este juego
+                if ext in aux_exts:
+                    continue  # archivos auxiliares de PS1
+
+            # Ignorar archivos de sistema habituales.
+            if fname.lower().endswith((".ini", ".db", ".txt")):
+                continue
+
+            found.append({
+                "platform": platform,
+                "file": fname,
+                "path": fpath,
+                "name": os.path.splitext(fname)[0]
+            })
+    return found
+
 def _fetch_missing_covers_bg(games: list):
     """Hilo en background: descarga carátulas faltantes sin bloquear get_games."""
     try:
@@ -490,31 +525,7 @@ async def get_games():
             print(f"[get-games] {plat}: carpeta no existe: {folder}")
             continue
         try:
-            files = os.listdir(folder)
-            # PS1: los juegos pueden ser .cue+.bin (2 archivos) o .iso/.img/.chd (1 archivo).
-            # Ocultar el .bin cuando existe un .cue con el mismo nombre (el .cue es el que se lanza),
-            # y ocultar archivos auxiliares (.sbi, .m3u de sub-archivos ya listados).
-            lower_files = {f.lower() for f in files}
-            aux_exts = (".sbi", ".m3u")
-            for fname in files:
-                fpath = os.path.normpath(os.path.join(folder, fname))
-                if os.path.isfile(fpath):
-                    base_lower = os.path.splitext(fname)[0].lower()
-                    ext = os.path.splitext(fname)[1].lower()
-                    if plat == "PS1":
-                        if ext == ".bin" and (base_lower + ".cue") in lower_files:
-                            continue  # el .cue ya representa este juego
-                        if ext in aux_exts:
-                            continue  # archivos auxiliares de PS1
-                    # ignorar archivos de sistema
-                    if fname.lower().endswith((".ini", ".db", ".txt")) and fname.lower() in ("desktop.ini", "thumbs.db"):
-                        continue
-                    all_games.append({
-                        "platform": plat,
-                        "file": fname,
-                        "path": fpath,
-                        "name": os.path.splitext(fname)[0]
-                    })
+            all_games.extend(_scan_rom_folder(plat, folder))
         except Exception as e:
             print(f"[get-games] error {plat}: {e}")
     # lanzar descarga de carátulas faltantes en background (no bloquea)
@@ -525,10 +536,7 @@ async def get_games():
         legacy = "./games/"
         if os.path.isdir(legacy):
             try:
-                for fname in os.listdir(legacy):
-                    fpath = os.path.join(legacy, fname)
-                    if os.path.isfile(fpath):
-                        all_games.append({"platform": "UNKNOWN", "file": fname, "path": fpath, "name": os.path.splitext(fname)[0]})
+                all_games.extend(_scan_rom_folder("UNKNOWN", legacy))
             except Exception:
                 pass
     return all_games

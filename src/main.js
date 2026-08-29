@@ -137,7 +137,7 @@ function updateActiveGameTitle() {
   titleEl.textContent = resolveTitle(game.file);
 }
 
-function updateCoversInPlace(images) {
+function updateCoversInPlace(images, cacheVersion = '') {
   // Actualiza solo las <img> de los slides existentes (incluye clones del loop),
   // sin destruir ni recrear el Swiper -> no se nota el refresco.
   const imgMap = new Map();
@@ -152,12 +152,12 @@ function updateCoversInPlace(images) {
     const title = resolveTitle(g.file).toLowerCase();
     const img = imgMap.get(cleanGame) || imgMap.get(cleanName) || imgMap.get(title);
     if (!img) return;
-    const want = "../img/" + img;
+    const want = "../img/" + img + (cacheVersion ? `?v=${cacheVersion}` : '');
     const slides = document.querySelectorAll(`.swiper-slide[data-path="${CSS.escape(g.path)}"]`);
     slides.forEach(slide => {
       const imgEl = slide.querySelector('img');
       if (imgEl) {
-        if (!imgEl.getAttribute('src').endsWith(img)) { imgEl.src = want; changed++; }
+        if (imgEl.getAttribute('src') !== want) { imgEl.src = want; changed++; }
       } else if (slide.classList.contains('slide-noimg')) {
         // placeholder sin carátula -> poner la imagen
         slide.classList.remove('slide-noimg');
@@ -171,19 +171,21 @@ function updateCoversInPlace(images) {
 
 function startCoverPolling(initialImages, initialGames) {
   if (coverPollInterval) clearInterval(coverPollInterval);
-  let lastCount = initialImages.length;
+  const imageSignature = images => JSON.stringify([...images].sort());
+  let lastSignature = imageSignature(initialImages);
   let checks = 0;
   coverPollInterval = setInterval(async () => {
     checks++;
     try {
       const freshImages = await loadImages();
-      if (freshImages.length > lastCount) {
-        console.log(`[cover] nuevas carátulas ${lastCount} -> ${freshImages.length}, actualizando in-place`);
-        lastCount = freshImages.length;
-        updateCoversInPlace(freshImages);
+      const freshSignature = imageSignature(freshImages);
+      if (freshSignature !== lastSignature) {
+        console.log(`[cover] listado de carátulas actualizado, refrescando imágenes`);
+        lastSignature = freshSignature;
+        updateCoversInPlace(freshImages, Date.now());
       }
-      // parar tras 30s (15 checks cada 2s)
-      if (checks >= 15) {
+      // Dar hasta 2 minutos a proveedores externos que responden más lento.
+      if (checks >= 60) {
         clearInterval(coverPollInterval);
         coverPollInterval = null;
       }
