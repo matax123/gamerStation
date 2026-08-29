@@ -116,6 +116,11 @@ LIBRETRO_BASE = "https://thumbnails.libretro.com"
 # Libretro no mantiene una colección completa para PS3.  Cover Century sirve
 # como respaldo para esos títulos que no aparecen en Named_Boxarts.
 COVERCENTURY_BASE = "https://www.covercentury.com/covers"
+# Algunas entradas de Cover Century son escaneos completos (frontal + trasera).
+# Para estos casos preferimos una imagen frontal ya catalogada.
+KNOWN_FRONT_COVERS = {
+    ("PS3", "batman arkham city"): "https://images.launchbox-app.com/92d960f9-0f81-4ebe-b809-2f5a6cc9b9e3.png",
+}
 
 SERIAL_TITLES = {
     "SLUS-20946": "Grand Theft Auto - San Andreas",
@@ -312,6 +317,10 @@ def _covercentury_candidates(platform: str, rom_file: str) -> List[str]:
             names.append(name)
 
     urls = []
+    known = KNOWN_FRONT_COVERS.get((platform.upper(), _normalize_for_match(names[0]))) if names else None
+    if known:
+        urls.append(known)
+
     for name in names:
         # Cover Century usa guiones en lugar de espacios y agrupa por la
         # primera letra del nombre del archivo.
@@ -378,7 +387,8 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
     # Cover Century tiene más carátulas de PS3 que el listado de Libretro.
     for url in _covercentury_candidates(platform, rom_file):
         try:
-            dest = os.path.join(dest_dir, dest_name + ".jpg")
+            dest_ext = ".png" if url.lower().endswith(".png") else ".jpg"
+            dest = os.path.join(dest_dir, dest_name + dest_ext)
             req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
             with urllib.request.urlopen(req, timeout=8) as resp:
                 if resp.status == 200:
@@ -387,8 +397,9 @@ def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Op
                         continue
                     with open(dest, "wb") as f:
                         f.write(data)
-                    print(f"[cover] {platform}/{rom_file} -> {dest_name}.jpg (Cover Century: {url})")
-                    return dest_name + ".jpg"
+                    source_name = "LaunchBox" if "launchbox-app.com" in url else "Cover Century"
+                    print(f"[cover] {platform}/{rom_file} -> {dest_name}{dest_ext} ({source_name}: {url})")
+                    return dest_name + dest_ext
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 print(f"[cover] HTTP {e.code} {url}")
