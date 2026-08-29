@@ -6,6 +6,7 @@ const backendUrl = "http://localhost:8400";
 // estado global para recarga sin refresh
 let swiper = null;
 let gamesDisplayed = [];
+let coverPollInterval = null;
 
 async function loadImages() {
   let result = await fetch(backendUrl + '/get-images', { method: 'POST' });
@@ -37,74 +38,116 @@ function generateSlide(url, game) {
   `
 }
 
+const SERIAL_TITLES_JS = {
+  "SLUS-20946": "Grand Theft Auto - San Andreas",
+  "SLUS-20062": "Grand Theft Auto - Vice City",
+  "SLUS-20552": "Grand Theft Auto III",
+};
+function cleanRomName(name) {
+  let n = splitByLastDot(name)[0];
+  n = n.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '');
+  n = n.replace(/\s+/g, ' ').trim();
+  return n;
+}
+function resolveTitle(file) {
+  const clean = cleanRomName(file);
+  const key = clean.toUpperCase();
+  if (/^[A-Z]{4}-\d{4,5}$/.test(key) && SERIAL_TITLES_JS[key]) return SERIAL_TITLES_JS[key];
+  return clean;
+}
+
 async function generateSlides(images, games) {
-  let swiperWrapper = document.querySelector('.swiper-wrapper');
+  const swiperWrapper = document.querySelector('.swiper-wrapper');
   swiperWrapper.innerHTML = '';
-  let html = '';
-  let gamesDisplayed = [];
-  // games es [{platform,file,path,name}]
-  images.forEach(image => {
-    const imgName = splitByLastDot(image)[0].toLowerCase();
-    const game = games.find(g => g.name.toLowerCase() === imgName || g.file.toLowerCase() === image.toLowerCase());
-    if (game) { html += generateSlide(image, game); gamesDisplayed.push(game); }
-  });
-  // Si no hay match por imagen, mostrar todos los juegos con placeholder (sin imagen)
-  if (gamesDisplayed.length === 0 && games.length > 0) {
-    games.forEach(g => {
-      // buscar imagen por nombre, si no hay usar placeholder
-      const hasImg = images.some(img => splitByLastDot(img)[0].toLowerCase() === g.name.toLowerCase());
-      if (!hasImg) {
-        html += `<div class="swiper-slide slide-noimg" data-platform="${g.platform}" data-path="${g.path}"><div class="slide-noimg-inner"><span class="slide-platform">${g.platform}</span><span class="slide-title">${g.name}</span></div></div>`;
-        gamesDisplayed.push(g);
-      }
-    });
-  }
-  swiperWrapper.innerHTML = html;
-  if (gamesDisplayed.length === 0 && games.length > 0) {
-    // fallback: mostrar todos aunque no tengan imagen
-    swiperWrapper.innerHTML = games.map(g => `<div class="swiper-slide slide-noimg" data-platform="${g.platform}" data-path="${g.path}"><div class="slide-noimg-inner"><span class="slide-platform">${g.platform}</span><span class="slide-title">${g.name}</span></div></div>`).join('');
-    gamesDisplayed = [...games];
-  }
-  if (gamesDisplayed.length === 0) {
+  if (games.length === 0) {
     swiperWrapper.innerHTML = '<p class="no-games-msg">Sin juegos — configura un engine y su carpeta de ROMs en ⚙</p>';
+    return [];
   }
+  // mapa imagen limpia -> archivo original
+  const imgMap = new Map();
+  images.forEach(img => {
+    const clean = cleanRomName(img).toLowerCase();
+    if (!imgMap.has(clean)) imgMap.set(clean, img);
+    // también mapear nombre exacto sin limpiar por si acaso
+    imgMap.set(splitByLastDot(img)[0].toLowerCase(), img);
+  });
+
+  let html = '';
+  const gamesDisplayed = [];
+  games.forEach(g => {
+    const cleanGame = cleanRomName(g.file).toLowerCase();
+    const cleanName = cleanRomName(g.name).toLowerCase();
+    const title = resolveTitle(g.file).toLowerCase();
+    let img = imgMap.get(cleanGame) || imgMap.get(cleanName) || imgMap.get(title) || null;
+    if (!img) {
+      for (const [k, v] of imgMap.entries()) {
+        if (k === cleanGame || cleanGame === k || k === title) { img = v; break; }
+      }
+    }
+    if (img) {
+      html += generateSlide(img, g);
+    } else {
+      html += `<div class="swiper-slide slide-noimg" data-platform="${g.platform}" data-path="${g.path}"><div class="slide-noimg-inner"><span class="slide-platform">${g.platform}</span><span class="slide-title">${resolveTitle(g.file)}</span></div></div>`;
+    }
+    gamesDisplayed.push(g);
+  });
+
+  swiperWrapper.innerHTML = html;
   return gamesDisplayed;
 }
 
 
 function initSwiper() {
   if (swiper) { try { swiper.destroy(true, true); } catch(e) {} swiper = null; }
-  if (gamesDisplayed.length >= 5) {
-    swiper = new Swiper('.swiper-container', {
-      slidesPerView: 3,
-      slidesPerGroup: 1,
-      spaceBetween: 0,
-      loop: true,
-      loopAdditionalSlides: 1,
-      loopedSlides: 1,
-      effect: 'coverflow',
-      coverflowEffect: {
-        rotate: 30,
-        stretch: 0,
-        depth: 70,
-        modifier: 1,
-        slideShadows: true,
-      },
-      navigation: {
-        nextEl: '.swiper-button-next',
-        prevEl: '.swiper-button-prev',
-      },
-      initialSlide: 1,
-    });
-  } else {
-    swiper = new Swiper('.swiper-container', {
-      loop: true,
-      navigation: {
-        nextEl: '.swiper-button-next',
-        prevEl: '.swiper-button-prev',
-      },
-    });
-  }
+  // Coverflow siempre — es el efecto 3D con sombras de 1.2
+  swiper = new Swiper('.swiper-container', {
+    slidesPerView: 3,
+    slidesPerGroup: 1,
+    spaceBetween: 20,
+    centeredSlides: true,
+    loop: gamesDisplayed.length > 3,
+    loopAdditionalSlides: 2,
+    loopedSlides: 2,
+    effect: 'coverflow',
+    coverflowEffect: {
+      rotate: 30,
+      stretch: 0,
+      depth: 120,
+      modifier: 1,
+      slideShadows: true,
+    },
+    navigation: {
+      nextEl: '.swiper-button-next',
+      prevEl: '.swiper-button-prev',
+    },
+    initialSlide: 1,
+  });
+}
+
+function startCoverPolling(initialImages, initialGames) {
+  if (coverPollInterval) clearInterval(coverPollInterval);
+  let lastCount = initialImages.length;
+  let checks = 0;
+  coverPollInterval = setInterval(async () => {
+    checks++;
+    try {
+      const freshImages = await loadImages();
+      if (freshImages.length > lastCount) {
+        console.log(`[cover] nuevas carátulas ${lastCount} -> ${freshImages.length}, recargando`);
+        lastCount = freshImages.length;
+        const games = initialGames || await loadGames();
+        gamesDisplayed = await generateSlides(freshImages, games);
+        initSwiper();
+      }
+      // parar tras 30s (15 checks cada 2s)
+      if (checks >= 15) {
+        clearInterval(coverPollInterval);
+        coverPollInterval = null;
+      }
+    } catch (e) {
+      console.error('[cover poll]', e);
+    }
+  }, 2000);
 }
 
 async function reloadGames() {
@@ -114,6 +157,7 @@ async function reloadGames() {
     gamesDisplayed = await generateSlides(images, games);
     initSwiper();
     console.log('[reloadGames] juegos recargados:', gamesDisplayed.length);
+    startCoverPolling(images, games);
   } catch (e) {
     console.error('[reloadGames]', e);
   }
@@ -125,6 +169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const games = await loadGames();
   gamesDisplayed = await generateSlides(images, games);
   initSwiper();
+  startCoverPolling(images, games);
 
 
 

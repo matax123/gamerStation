@@ -13,6 +13,10 @@ import subprocess
 import threading
 import pygetwindow as gw
 import time
+import re
+import urllib.request
+import urllib.parse
+import urllib.error
 from typing import List, Dict, Optional
 
 
@@ -94,6 +98,135 @@ class ConfigModel(BaseModel):
     engines: Dict[str, str] = {p: "" for p in PLATFORMS}
     romFolders: Dict[str, str] = {p: "" for p in PLATFORMS}
 
+# ── Libretro Thumbnails ───────────────────────────────────────
+LIBRETRO_PLAYLIST = {
+    "NES": "Nintendo - Nintendo Entertainment System",
+    "SNES": "Nintendo - Super Nintendo Entertainment System",
+    "GBA": "Nintendo - Game Boy Advance",
+    "PS1": "Sony - PlayStation",
+    "PS2": "Sony - PlayStation 2",
+    "WIIU": "Nintendo - Wii U",
+    "SWITCH": "Nintendo - Nintendo Switch",
+}
+LIBRETRO_BASE = "https://thumbnails.libretro.com"
+
+SERIAL_TITLES = {
+    "SLUS-20946": "Grand Theft Auto - San Andreas",
+    "SLUS-20062": "Grand Theft Auto - Vice City",
+    "SLUS-20552": "Grand Theft Auto III",
+    "SLUS-21423": "God of War II",
+    "SLUS-21008": "God of War",
+    "SLUS-20312": "Final Fantasy X",
+    "SLUS-20672": "Kingdom Hearts",
+    "SLUS-21059": "Shadow of the Colossus",
+    "SLUS-21242": "Okami",
+    "SLUS-20184": "Gran Turismo 3 - A-Spec",
+    "SLUS-20712": "Dragon Ball Z - Budokai Tenkaichi 3",
+    "SLUS-20943": "Soulcalibur III",
+}
+SERIAL_RE = re.compile(r'^[A-Z]{4}-\d{4,5}$', re.IGNORECASE)
+
+def _clean_rom_name(name: str) -> str:
+    """Quita tags (USA) [En] y extensión para buscar carátula."""
+    name = os.path.splitext(name)[0]
+    name = re.sub(r'\(.*?\)', '', name)
+    name = re.sub(r'\[.*?\]', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+def _resolve_title(platform: str, rom_file: str) -> str:
+    """Si el ROM es un serial (SLUS-20946), devuelve el título real."""
+    clean = _clean_rom_name(rom_file)
+    key = clean.upper()
+    if SERIAL_RE.match(key) and key in SERIAL_TITLES:
+        return SERIAL_TITLES[key]
+    # intentar buscar en redump si es serial desconocido (cache en memoria)
+    if SERIAL_RE.match(key):
+        # fallback: intentar redump quicksearch (sin bloquear mucho)
+        try:
+            url = f"https://redump.org/discs/quicksearch/{urllib.parse.quote(key)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                html = resp.read().decode('utf-8', errors='ignore')
+                m = re.search(r'<a[^>]+>([^<]*' + re.escape(key) + r'[^<]*)</a>', html, re.IGNORECASE)
+                if m:
+                    # título suele estar antes del serial
+                    title = re.sub(r'\s*\(.*?\)', '', m.group(1)).strip()
+                    # limpiar serial del título
+                    title = re.sub(re.escape(key), '', title, flags=re.IGNORECASE).strip(' -:')
+                    if title:
+                        return title
+        except Exception:
+            pass
+    return clean
+
+def _libretro_candidates(platform: str, rom_file: str) -> List[str]:
+    """URLs candidatas para la carátula."""
+    playlist = LIBRETRO_PLAYLIST.get(platform.upper(), "")
+    if not playlist:
+        return []
+    title = _resolve_title(platform, rom_file)
+    clean = _clean_rom_name(rom_file)
+    # base names a probar
+    base_names = []
+    for n in (title, clean):
+        if n and n not in base_names:
+            base_names.append(n)
+    raw_no_ext = os.path.splitext(rom_file)[0]
+    if raw_no_ext not in base_names:
+        base_names.append(raw_no_ext)
+    # expandir con sufijos de región comunes en libretro
+    suffixes = ["", " (USA)", " (USA) (En,Ja)", " (Europe)", " (Japan)", " (World)"]
+    names = []
+    for base in base_names:
+        for suf in suffixes:
+            v = base + suf
+            if v not in names:
+                names.append(v)
+    urls = []
+    for n in names:
+        enc = urllib.parse.quote(n + ".png")
+        urls.append(f"{LIBRETRO_BASE}/{urllib.parse.quote(playlist)}/Named_Boxarts/{enc}")
+    return urls
+
+def fetch_cover(platform: str, rom_file: str, dest_dir: str = "./src/img") -> Optional[str]:
+    """Descarga carátula si no existe. Retorna path relativo o None."""
+    os.makedirs(dest_dir, exist_ok=True)
+    title = _resolve_title(platform, rom_file)
+    clean = _clean_rom_name(rom_file)
+    # si es serial, el archivo destino debe ser el título, no el serial
+    dest_name = title if SERIAL_RE.match(clean.upper()) else clean
+    for ext in (".png", ".jpg", ".jpeg"):
+        if os.path.exists(os.path.join(dest_dir, dest_name + ext)):
+            return dest_name + ext
+        if os.path.exists(os.path.join(dest_dir, title + ext)):
+            return title + ext
+        if os.path.exists(os.path.join(dest_dir, rom_file)):
+            return rom_file
+    # intentar descargar
+    for url in _libretro_candidates(platform, rom_file):
+        try:
+            dest = os.path.join(dest_dir, dest_name + ".png")
+            req = urllib.request.Request(url, headers={"User-Agent": "GamerStation/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    data = resp.read()
+                    if len(data) < 500:
+                        continue
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                    print(f"[cover] {platform}/{rom_file} -> {dest_name}.png ({url})")
+                    return dest_name + ".png"
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                print(f"[cover] HTTP {e.code} {url}")
+            continue
+        except Exception as e:
+            print(f"[cover] error {url}: {e}")
+            continue
+    print(f"[cover] no encontrada para {platform}/{rom_file} (clean={clean}, title={title})")
+    return None
+
 
 @app.post("/get-images/")
 async def get_images():
@@ -104,6 +237,60 @@ async def get_images():
         return os.listdir(folder_path)
     except Exception:
         return []
+
+@app.post("/fetch-cover/")
+async def fetch_cover_endpoint(data: dict):
+    """Descarga carátula para un ROM. Body: {platform, file}"""
+    platform = (data.get("platform") or "").strip()
+    file = (data.get("file") or "").strip()
+    if not platform or not file:
+        return {"error": "platform y file requeridos"}
+    result = fetch_cover(platform, file)
+    return {"cover": result, "platform": platform, "file": file}
+
+@app.post("/fetch-covers/")
+async def fetch_covers_bulk():
+    """Descarga carátulas para todos los ROMs sin imagen. Retorna resumen."""
+    games = await get_games()
+    # imágenes existentes (nombres sin extensión, lower)
+    img_dir = "./src/img/"
+    existing = set()
+    if os.path.isdir(img_dir):
+        for f in os.listdir(img_dir):
+            existing.add(os.path.splitext(f)[0].lower())
+    fetched = []
+    missing = []
+    for g in games:
+        clean = _clean_rom_name(g["file"]).lower()
+        raw = os.path.splitext(g["file"])[0].lower()
+        if clean in existing or raw in existing or g["name"].lower() in existing:
+            continue
+        cover = fetch_cover(g["platform"], g["file"])
+        if cover:
+            fetched.append({"platform": g["platform"], "file": g["file"], "cover": cover})
+            existing.add(clean)
+        else:
+            missing.append({"platform": g["platform"], "file": g["file"]})
+    return {"fetched": fetched, "missing": missing, "total": len(games)}
+
+def _fetch_missing_covers_bg(games: list):
+    """Hilo en background: descarga carátulas faltantes sin bloquear get_games."""
+    try:
+        img_dir = "./src/img"
+        existing = set()
+        if os.path.isdir(img_dir):
+            for f in os.listdir(img_dir):
+                existing.add(os.path.splitext(f)[0].lower())
+        for g in games:
+            clean = _clean_rom_name(g["file"]).lower()
+            raw = os.path.splitext(g["file"])[0].lower()
+            if clean in existing or raw in existing or g["name"].lower() in existing:
+                continue
+            cover = fetch_cover(g["platform"], g["file"])
+            if cover:
+                existing.add(clean)
+    except Exception as e:
+        print(f"[cover bg] error: {e}")
 
 @app.post("/get-games/")
 async def get_games():
@@ -135,6 +322,9 @@ async def get_games():
                     })
         except Exception as e:
             print(f"[get-games] error {plat}: {e}")
+    # lanzar descarga de carátulas faltantes en background (no bloquea)
+    if all_games:
+        threading.Thread(target=_fetch_missing_covers_bg, args=(list(all_games),), daemon=True).start()
     # fallback legacy ./games/ si no hay nada configurado
     if not all_games:
         legacy = "./games/"
