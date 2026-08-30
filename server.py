@@ -537,6 +537,10 @@ SWITCH_VERSION_RE = re.compile(
     r"(?:$|[\s._\-\]\)])",
     re.IGNORECASE,
 )
+PS1_TRACK_RE = re.compile(
+    r"[\s._\-]*[\(\[]?\s*track\s*\d+\s*[\)\]]?\s*$",
+    re.IGNORECASE,
+)
 
 
 def _is_switch_update(filename: str) -> bool:
@@ -553,6 +557,11 @@ def _switch_release_key(filename: str) -> str:
     # Quitar tags de región/title ID deja el nombre común del juego en la
     # nomenclatura habitual de dumps de Switch.
     return _normalize_for_match(_clean_rom_name(stem))
+
+
+def _ps1_cue_stem(filename: str) -> str:
+    """Quita el sufijo de pista para localizar el .cue de un disco PS1."""
+    return PS1_TRACK_RE.sub("", os.path.splitext(filename)[0]).strip()
 
 
 def _remove_switch_updates(games: List[dict]) -> List[dict]:
@@ -593,8 +602,13 @@ def _scan_rom_folder(platform: str, folder: str) -> List[dict]:
             base_lower = os.path.splitext(fname)[0].lower()
             ext = os.path.splitext(fname)[1].lower()
             if platform == "PS1":
-                if ext == ".bin" and (base_lower + ".cue") in lower_files:
-                    continue  # el .cue ya representa este juego
+                if ext == ".bin":
+                    cue_names = {base_lower + ".cue"}
+                    track_stem = _ps1_cue_stem(fname).lower()
+                    if track_stem != base_lower:
+                        cue_names.add(track_stem + ".cue")
+                    if cue_names & lower_files:
+                        continue  # el .cue ya representa este juego y sus tracks
                 if ext in aux_exts:
                     continue  # archivos auxiliares de PS1
 
