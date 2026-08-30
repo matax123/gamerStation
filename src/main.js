@@ -259,14 +259,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     websocket.onmessage = async (event) => {
       try {
         let input = JSON.parse(event.data);
-        const device = String(input.device ?? input.joy ?? 'default');
+        const deviceValue = input.device !== undefined && input.device !== null
+          ? input.device
+          : (input.joy !== undefined && input.joy !== null ? input.joy : 'default');
+        const device = String(deviceValue);
         let button0Pressed = false;
         if (input.type === "axis") {
-          axisByDevice[device] ??= {};
+          if (!axisByDevice[device]) axisByDevice[device] = {};
           axisByDevice[device][input.axis] = input.value;
         }
         if (input.type === "button") {
-          buttonsByDevice[device] ??= {};
+          if (!buttonsByDevice[device]) buttonsByDevice[device] = {};
           const wasPressed = buttonsByDevice[device][input.button] === 1;
           buttonsByDevice[device][input.button] = input.value;
           button0Pressed = input.button === 0 && input.value === 1 && !wasPressed;
