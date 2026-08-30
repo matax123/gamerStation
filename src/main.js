@@ -219,11 +219,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
-  let axis = {};
-  let buttons = {};
+  const axisByDevice = {};
+  const buttonsByDevice = {};
   let websocket;
   let inputLocked = false;
-  let prevButton0 = 0;
   let pollInterval = null;
 
   function startGamePolling() {
@@ -260,25 +259,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     websocket.onmessage = async (event) => {
       try {
         let input = JSON.parse(event.data);
-        if (input.type === "axis") axis[input.axis] = input.value;
-        if (input.type === "button") buttons[input.button] = input.value;
+        const device = String(input.device ?? input.joy ?? 'default');
+        let button0Pressed = false;
+        if (input.type === "axis") {
+          axisByDevice[device] ??= {};
+          axisByDevice[device][input.axis] = input.value;
+        }
+        if (input.type === "button") {
+          buttonsByDevice[device] ??= {};
+          const wasPressed = buttonsByDevice[device][input.button] === 1;
+          buttonsByDevice[device][input.button] = input.value;
+          button0Pressed = input.button === 0 && input.value === 1 && !wasPressed;
+        }
 
         // Si el input está bloqueado, ignorar todo hasta que el juego cierre
         if (inputLocked) return;
 
         // Navegación con debounce simple (solo si no está bloqueado)
-        if (axis[0] < -0.5) {
+        if (input.type === "axis" && input.axis === 0 && input.value < -0.5) {
           swiper?.slidePrev();
-        } else if (axis[0] > 0.5) {
+        } else if (input.type === "axis" && input.axis === 0 && input.value > 0.5) {
           swiper?.slideNext();
         }
 
         // Detección de flanco: solo al presionar (0 -> 1), no mientras se mantiene
-        const isPressed = buttons[0] === 1;
-        const wasPressed = prevButton0 === 1;
-        prevButton0 = buttons[0] === 1 ? 1 : 0;
-
-        if (isPressed && !wasPressed) {
+        if (button0Pressed) {
           // Bloquear inmediatamente para evitar doble lanzamiento
           inputLocked = true;
 
