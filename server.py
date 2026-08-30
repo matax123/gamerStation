@@ -526,6 +526,55 @@ async def fetch_covers_bulk():
             missing.append({"platform": g["platform"], "file": g["file"]})
     return {"fetched": fetched, "missing": missing, "total": len(games)}
 
+SWITCH_UPDATE_RE = re.compile(
+    r"(?:^|[\s._\-\[\(])(?:update|upd|patch)(?:$|[\s._\-\]\)])",
+    re.IGNORECASE,
+)
+# Los dumps de Switch suelen distinguir la ROM base con v0 y los updates con
+# una versión distinta (v1, v65536, v1.0.1, etc.).
+SWITCH_VERSION_RE = re.compile(
+    r"(?:^|[\s._\-\[\(])v(?:ersion)?\s*([1-9]\d*(?:[._]\d+)*)"
+    r"(?:$|[\s._\-\]\)])",
+    re.IGNORECASE,
+)
+
+
+def _is_switch_update(filename: str) -> bool:
+    """Indica si un nombre corresponde a un update/parche de Switch."""
+    stem = os.path.splitext(filename)[0]
+    return bool(SWITCH_UPDATE_RE.search(stem) or SWITCH_VERSION_RE.search(stem))
+
+
+def _switch_release_key(filename: str) -> str:
+    """Obtiene la clave común entre la ROM base y su update."""
+    stem = os.path.splitext(filename)[0]
+    stem = SWITCH_UPDATE_RE.sub(" ", stem)
+    stem = SWITCH_VERSION_RE.sub(" ", stem)
+    # Quitar tags de región/title ID deja el nombre común del juego en la
+    # nomenclatura habitual de dumps de Switch.
+    return _normalize_for_match(_clean_rom_name(stem))
+
+
+def _remove_switch_updates(games: List[dict]) -> List[dict]:
+    """Oculta updates de Switch cuando existe la ROM base correspondiente.
+
+    Si una carpeta contiene únicamente el update, se conserva para no hacer
+    desaparecer una entrada que el usuario sí tiene disponible.
+    """
+    switch_games = [g for g in games if g["platform"] == "SWITCH"]
+    base_keys = {
+        _switch_release_key(g["file"])
+        for g in switch_games
+        if not _is_switch_update(g["file"])
+    }
+    return [
+        g for g in games
+        if g["platform"] != "SWITCH"
+        or not _is_switch_update(g["file"])
+        or _switch_release_key(g["file"]) not in base_keys
+    ]
+
+
 def _scan_rom_folder(platform: str, folder: str) -> List[dict]:
     """Recorre una carpeta de ROMs y todas sus subcarpetas."""
     found = []
@@ -559,7 +608,7 @@ def _scan_rom_folder(platform: str, folder: str) -> List[dict]:
                 "path": fpath,
                 "name": os.path.splitext(fname)[0]
             })
-    return found
+    return _remove_switch_updates(found)
 
 def _fetch_missing_covers_bg(games: list):
     """Hilo en background: descarga carátulas faltantes sin bloquear get_games."""
