@@ -51,7 +51,7 @@ def build_launch_command(platform: str, engine: str, rom: str) -> str:
     if p == "WIIU":
         return f'start /wait "" "{engine}" -f -g "{rom}"'
     if p == "SWITCH":
-        return f'start /wait "" "{engine}" "{rom}"'
+        return f'start /wait "" "{engine}" -f "{rom}"'
     if p in ("PS2", "PS1", "GBA", "NES", "SNES"):
         return f'start /wait "" "{engine}" "{rom}" -fullscreen'
     if p == "PS3":
